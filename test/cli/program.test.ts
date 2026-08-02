@@ -1,3 +1,4 @@
+import { Readable, Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { createProgram } from '../../src/cli/program.js';
 import { MeloPulseError } from '../../src/errors.js';
@@ -47,21 +48,28 @@ function fakeService(calls: Call[]): MeloPulseService {
 }
 
 async function run(
-  arguments_: string[],
+  arguments_: readonly string[],
   service = fakeService([]),
   suppliedIO: Partial<CliIO> = {},
 ): Promise<{ stdout: string; stderr: string; exitCodes: number[] }> {
   let stdout = '';
   let stderr = '';
   const exitCodes: number[] = [];
+  const output = new Writable({
+    write(chunk, _encoding, callback) {
+      stdout += chunk.toString();
+      callback();
+    },
+  });
   const program = createProgram(service, {
     stdout: { write: (text: string) => { stdout += text; return true; } },
     stderr: { write: (text: string) => { stderr += text; return true; } },
+    output,
     isInteractive: false,
     setExitCode: (code) => { exitCodes.push(code); },
     ...suppliedIO,
   });
-  await program.parseAsync(arguments_, { from: 'user' });
+  await program.parseAsync([...arguments_], { from: 'user' });
   return { stdout, stderr, exitCodes };
 }
 
@@ -99,6 +107,16 @@ describe('melopulse commands', () => {
     expect(calls).toEqual([{ method: 'syncCatalog' }]);
   });
 
+  it('keeps interactive add JSON as one stdout value without a prompt', async () => {
+    const result = await run(['add', 'https://open.spotify.com/playlist/abc', '--json'], fakeService([]), {
+      isInteractive: true,
+      input: Readable.from(['A prompted title\n']),
+    });
+
+    expect(JSON.parse(result.stdout)).toMatchObject({ id: 'spotify:abc', title: 'Spotify playlist' });
+    expect(result.stdout).not.toContain('Playlist title:');
+  });
+
   it('lists local playlists by source without calling sync', async () => {
     const calls: Call[] = [];
     const result = await run(['list', '--source', 'spotify'], fakeService(calls));
@@ -130,6 +148,16 @@ describe('melopulse commands', () => {
     });
 
     expect(result.stdout).not.toContain('\u001B[');
+  });
+
+  it.each([
+    ['NO_COLOR', ['sync'], { isInteractive: true, isStderrInteractive: true, env: { NO_COLOR: '' } }],
+    ['--no-color', ['--no-color', 'sync'], { isInteractive: true, isStderrInteractive: true, env: {} }],
+    ['redirected stderr', ['sync'], { isInteractive: true, isStderrInteractive: false, env: {} }],
+  ] as const)('does not write sync progress controls for %s', async (_scenario, arguments_, suppliedIO) => {
+    const result = await run(arguments_, fakeService([]), suppliedIO);
+
+    expect(result.stderr).toBe('');
   });
 
   it('reports command failures through the injected exit-code setter', async () => {

@@ -16,6 +16,7 @@ export interface CliIO {
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
   isInteractive?: boolean;
+  isStderrInteractive?: boolean;
   env?: NodeJS.ProcessEnv;
   columns?: number;
   setExitCode?: (code: number) => void;
@@ -32,7 +33,8 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     stderr: suppliedIO.stderr ?? process.stderr,
     input: suppliedIO.input ?? process.stdin,
     output: suppliedIO.output ?? process.stdout,
-    isInteractive: suppliedIO.isInteractive ?? Boolean(process.stdin.isTTY),
+    isInteractive: suppliedIO.isInteractive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    isStderrInteractive: suppliedIO.isStderrInteractive ?? (suppliedIO.isInteractive ?? Boolean(process.stderr.isTTY)),
     env: suppliedIO.env ?? process.env,
     ...(suppliedIO.columns === undefined ? {} : { columns: suppliedIO.columns }),
     setExitCode: suppliedIO.setExitCode ?? ((code: number) => { process.exitCode = code; }),
@@ -40,6 +42,7 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
   const program = new Command();
   const capabilitiesFor = (json: boolean | undefined): CliCapabilities => resolveCliCapabilities({
     isTTY: io.isInteractive,
+    stderrIsTTY: io.isStderrInteractive,
     json: json ?? false,
     noColor: program.opts().color === false,
     env: io.env,
@@ -73,7 +76,7 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .addHelpText('after', '\nExample:\n  melopulse add https://open.spotify.com/playlist/abc --title "Deep Work"\n')
     .action(async (url: string, options: AddOptions) => {
       await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
-        const title = options.title ?? await resolveTitle(url, io);
+        const title = options.title ?? await resolveTitle(url, io, !options.json);
         const playlist = await service.addPlaylist({
           url,
           ...(title === undefined ? {} : { title }),
@@ -164,9 +167,13 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
   return program;
 }
 
-async function resolveTitle(url: string, io: Pick<ResolvedCliIO, 'input' | 'output' | 'isInteractive'>): Promise<string> {
+async function resolveTitle(
+  url: string,
+  io: Pick<ResolvedCliIO, 'input' | 'output' | 'isInteractive'>,
+  allowPrompt: boolean,
+): Promise<string> {
   const fallback = `${providerDisplayName(detectProvider(normalizePlaylistUrl(url)))} playlist`;
-  if (!io.isInteractive) return fallback;
+  if (!allowPrompt || !io.isInteractive) return fallback;
   const readline = createInterface({ input: io.input, output: io.output });
   try {
     return (await readline.question('Playlist title: ')).trim() || fallback;

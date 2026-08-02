@@ -4,7 +4,8 @@ import { CommanderError } from 'commander';
 import { createMeloPulseService } from '../service.js';
 
 const program = createProgram(createMeloPulseService(), {
-  isInteractive: Boolean(process.stdout.isTTY),
+  isInteractive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  isStderrInteractive: Boolean(process.stderr.isTTY),
   env: process.env,
   columns: process.stdout.columns,
 });

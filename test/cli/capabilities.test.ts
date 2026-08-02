@@ -7,7 +7,8 @@ describe('CLI capabilities', () => {
     [{ isTTY: false, json: false, noColor: false, env: {}, columns: 90 }, { mode: 'plain', color: false, unicode: true, progress: false, columns: 90 }],
     [{ isTTY: true, json: true, noColor: false, env: {}, columns: 90 }, { mode: 'json', color: false, unicode: false, progress: false, columns: 90 }],
     [{ isTTY: true, json: false, noColor: false, env: {}, columns: 90 }, { mode: 'interactive', color: true, unicode: true, progress: true, columns: 90 }],
-    [{ isTTY: true, json: false, noColor: false, env: { NO_COLOR: '1' }, columns: 90 }, { mode: 'interactive', color: false, unicode: true, progress: true, columns: 90 }],
+    [{ isTTY: true, json: false, noColor: false, env: { NO_COLOR: '1' }, columns: 90 }, { mode: 'interactive', color: false, unicode: true, progress: false, columns: 90 }],
+    [{ isTTY: true, stderrIsTTY: false, json: false, noColor: false, env: {}, columns: 90 }, { mode: 'interactive', color: true, unicode: true, progress: false, columns: 90 }],
     [{ isTTY: true, json: false, noColor: false, env: { TERM: 'dumb' }, columns: 90 }, { mode: 'plain', color: false, unicode: false, progress: false, columns: 90 }],
   ] as const)('resolves %#', (input, expected) => {
     expect(resolveCliCapabilities(input)).toEqual(expected);
