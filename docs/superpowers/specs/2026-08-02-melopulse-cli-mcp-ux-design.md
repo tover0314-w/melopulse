@@ -1,8 +1,8 @@
 # MeloPulse CLI And MCP UX Polish Design
 
-**Date:** 2026-08-02  
-**Status:** Approved by delegated user direction  
-**Target release:** 0.2.0  
+**Date:** 2026-08-02
+**Status:** Approved by delegated user direction
+**Target release:** 0.2.0
 **Repository:** `tover0314-w/melopulse`
 
 ## Summary
