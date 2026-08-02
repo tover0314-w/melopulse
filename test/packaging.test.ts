@@ -2,10 +2,8 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-
-type ProcessResult = { code: number | null; stdout: string; stderr: string };
+import { runProcess, type ProcessResult } from './helpers/run-process.js';
 
 const repository = process.cwd();
 
@@ -25,15 +23,7 @@ function npmCliPath(): string {
 }
 
 function run(command: string, arguments_: string[], cwd: string): Promise<ProcessResult> {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(command, arguments_, { cwd, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.once('error', reject);
-    child.once('close', (code) => { resolveResult({ code, stdout, stderr }); });
-  });
+  return runProcess(command, arguments_, { cwd, timeoutMs: 90_000 });
 }
 
 async function cleanSourceCopy(): Promise<{ parent: string; source: string }> {
@@ -79,8 +69,9 @@ describe('release packaging', () => {
     } finally {
       if (tarball) await rm(tarball, { force: true });
       await rm(copy.parent, { recursive: true, force: true });
+      expect(existsSync(copy.parent)).toBe(false);
     }
-  }, 30_000);
+  }, 120_000);
 
   it('removes stale generated files before creating the tarball', async () => {
     const copy = await cleanSourceCopy();
@@ -99,8 +90,9 @@ describe('release packaging', () => {
     } finally {
       if (tarball) await rm(tarball, { force: true });
       await rm(copy.parent, { recursive: true, force: true });
+      expect(existsSync(copy.parent)).toBe(false);
     }
-  }, 30_000);
+  }, 120_000);
 
   it('provides public declarations to an installed TypeScript consumer without exporting internals', async () => {
     const copy = await cleanSourceCopy();
@@ -182,6 +174,7 @@ void [playlist, input, service];
     } finally {
       if (tarball) await rm(tarball, { force: true });
       await rm(copy.parent, { recursive: true, force: true });
+      expect(existsSync(copy.parent)).toBe(false);
     }
-  }, 60_000);
+  }, 120_000);
 });

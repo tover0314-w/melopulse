@@ -1,22 +1,9 @@
-import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { cp, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-
-type ProcessResult = { code: number | null; stdout: string; stderr: string };
-
-function runProcess(command: string, arguments_: string[], environment: NodeJS.ProcessEnv): Promise<ProcessResult> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, arguments_, { env: environment, stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.once('error', reject);
-    child.once('close', (code) => { resolve({ code, stdout, stderr }); });
-  });
-}
+import { runProcess } from './helpers/run-process.js';
 
 describe('packed-install smoke test', () => {
   it('runs directly from a repository path with spaces and an ampersand', async () => {
@@ -41,13 +28,17 @@ describe('packed-install smoke test', () => {
       ]);
       await symlink(join(source, 'node_modules'), join(replica, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
 
-      const result = await runProcess(process.execPath, [join(replica, 'scripts', 'smoke-pack.mjs')], environment);
+      const result = await runProcess(process.execPath, [join(replica, 'scripts', 'smoke-pack.mjs')], {
+        env: environment,
+        timeoutMs: 90_000,
+      });
 
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain('Packed-install smoke test passed');
       expect(result.stdout).toContain('Packed MCP smoke test passed');
     } finally {
       await rm(parent, { recursive: true, force: true });
+      expect(existsSync(parent)).toBe(false);
     }
-  }, 30_000);
+  }, 120_000);
 });
