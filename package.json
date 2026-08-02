@@ -7,7 +7,14 @@
   "license": "MIT",
   "engines": { "node": ">=20" },
   "bin": { "melopulse": "./dist/cli/index.js" },
-  "exports": { ".": "./dist/index.js" },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "files": ["dist", "docs", "examples", "README.md", "LICENSE", "CHANGELOG.md"],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -15,6 +22,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "verify": "npm run typecheck && npm run lint && npm test && npm run build",
+    "prepack": "node scripts/prepack.mjs",
     "smoke:pack": "node scripts/smoke-pack.mjs"
   },
   "dependencies": {
