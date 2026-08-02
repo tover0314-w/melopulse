@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runProcess, type ProcessResult } from './helpers/run-process.js';
-import { withCleanup } from './helpers/with-cleanup.js';
+import { withAcquisitionCleanup, withCleanup } from './helpers/with-cleanup.js';
 
 const repository = process.cwd();
 
@@ -30,9 +30,12 @@ function run(command: string, arguments_: string[], cwd: string): Promise<Proces
 async function cleanSourceCopy(): Promise<{ parent: string; source: string }> {
   const parent = await mkdtemp(join(tmpdir(), 'melopulse clean pack & '));
   const source = join(parent, 'source with spaces');
-  await Promise.all([
-    ...['src', 'docs', 'examples', 'scripts'].map((directory) => cp(join(repository, directory), join(source, directory), { recursive: true })),
-    ...[
+
+  return withAcquisitionCleanup(async () => {
+    for (const directory of ['src', 'docs', 'examples', 'scripts']) {
+      await cp(join(repository, directory), join(source, directory), { recursive: true });
+    }
+    for (const file of [
       'package.json',
       'package-lock.json',
       'tsconfig.json',
@@ -40,10 +43,15 @@ async function cleanSourceCopy(): Promise<{ parent: string; source: string }> {
       'README.md',
       'LICENSE',
       'CHANGELOG.md',
-    ].map((file) => cp(join(repository, file), join(source, file))),
-  ]);
-  await symlink(join(repository, 'node_modules'), join(source, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
-  return { parent, source };
+    ]) {
+      await cp(join(repository, file), join(source, file));
+    }
+    await symlink(join(repository, 'node_modules'), join(source, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+    return { parent, source };
+  }, async () => {
+    await rm(parent, { recursive: true, force: true });
+    expect(existsSync(parent)).toBe(false);
+  });
 }
 
 describe('release packaging', () => {

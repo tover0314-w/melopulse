@@ -22,3 +22,22 @@ export async function withCleanup<T>(operation: () => Promise<T>, cleanup: () =>
   if (!operationCompleted) throw primaryError;
   return result as T;
 }
+
+export async function withAcquisitionCleanup<T>(
+  acquisition: () => Promise<T>,
+  cleanup: () => Promise<void>,
+): Promise<T> {
+  try {
+    return await acquisition();
+  } catch (acquisitionError) {
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [acquisitionError, cleanupError],
+        'The acquisition and cleanup both failed.',
+      );
+    }
+    throw acquisitionError;
+  }
+}

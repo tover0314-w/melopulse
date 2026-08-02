@@ -1,5 +1,14 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 
+const WINDOWS_TASKKILL_TIMEOUT_MS = 10_000;
+const PROCESS_CLOSE_TIMEOUT_MS = 5_000;
+const POSIX_TERMINATION_GRACE_MS = 500;
+
+export const PROCESS_TREE_TERMINATION_BUDGET_MS = Math.max(
+  WINDOWS_TASKKILL_TIMEOUT_MS + PROCESS_CLOSE_TIMEOUT_MS,
+  POSIX_TERMINATION_GRACE_MS + PROCESS_CLOSE_TIMEOUT_MS,
+);
+
 export type ProcessResult = { code: number | null; stdout: string; stderr: string };
 
 export interface RunProcessOptions {
@@ -116,20 +125,20 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
     const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
       shell: false,
       stdio: 'ignore',
-      timeout: 10_000,
+      timeout: WINDOWS_TASKKILL_TIMEOUT_MS,
       windowsHide: true,
     });
     if (result.error && !isNoSuchProcess(result.error)) throw result.error;
-    if (!await waitForClose(child, 5_000)) {
+    if (!await waitForClose(child, PROCESS_CLOSE_TIMEOUT_MS)) {
       throw new Error(`taskkill did not terminate process tree ${pid}.`);
     }
     return;
   }
 
   signalProcessGroup(pid, 'SIGTERM');
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  await new Promise((resolve) => setTimeout(resolve, POSIX_TERMINATION_GRACE_MS));
   signalProcessGroup(pid, 'SIGKILL');
-  if (!await waitForClose(child, 5_000)) {
+  if (!await waitForClose(child, PROCESS_CLOSE_TIMEOUT_MS)) {
     throw new Error(`Signals did not terminate process group ${pid}.`);
   }
 }

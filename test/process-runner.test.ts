@@ -3,11 +3,27 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { runProcess } from './helpers/run-process.js';
+import { PROCESS_TREE_TERMINATION_BUDGET_MS, runProcess } from './helpers/run-process.js';
 import { withCleanup } from './helpers/with-cleanup.js';
+
+const STARTUP_TIMEOUT_MS = 5_000;
+const OPERATION_TIMEOUT_MS = 100;
+const PID_EXIT_TIMEOUT_MS = 2_000;
+const CLEANUP_TIMEOUT_BUDGET_MS = 5_000;
+const TEST_HARNESS_MARGIN_MS = 23_000;
+const INNER_TIMEOUT_BUDGET_MS = STARTUP_TIMEOUT_MS
+  + OPERATION_TIMEOUT_MS
+  + PROCESS_TREE_TERMINATION_BUDGET_MS
+  + PID_EXIT_TIMEOUT_MS
+  + CLEANUP_TIMEOUT_BUDGET_MS;
+const PROCESS_RUNNER_TEST_TIMEOUT_MS = INNER_TIMEOUT_BUDGET_MS + TEST_HARNESS_MARGIN_MS;
 
 describe('bounded test subprocesses', () => {
   it('starts the operation deadline after readiness and kills the reported grandchild PID', async () => {
+    expect(INNER_TIMEOUT_BUDGET_MS).toBeLessThan(PROCESS_RUNNER_TEST_TIMEOUT_MS);
+    expect(PROCESS_RUNNER_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(45_000);
+    expect(PROCESS_RUNNER_TEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+
     const directory = await mkdtemp(join(tmpdir(), 'melopulse timeout & '));
     const grandchildSource = `
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1_500);
@@ -31,8 +47,8 @@ describe('bounded test subprocesses', () => {
         await runProcess(process.execPath, ['-e', parentSource], {
           cwd: directory,
           readyPattern: /GRANDCHILD_READY \d+/,
-          startupTimeoutMs: 5_000,
-          timeoutMs: 100,
+          startupTimeoutMs: STARTUP_TIMEOUT_MS,
+          timeoutMs: OPERATION_TIMEOUT_MS,
         });
       } catch (error) {
         caught = error;
@@ -40,20 +56,20 @@ describe('bounded test subprocesses', () => {
 
       expect(caught).toBeInstanceOf(Error);
       const diagnostics = (caught as Error).message;
-      expect(diagnostics).toContain('timed out after 100ms');
+      expect(diagnostics).toContain(`timed out after ${OPERATION_TIMEOUT_MS}ms`);
       expect(diagnostics).toContain('captured parent stderr');
       const ready = diagnostics.match(/GRANDCHILD_READY (\d+)/);
       expect(ready).not.toBeNull();
       const grandchildPid = Number(ready?.[1]);
       expect(Number.isSafeInteger(grandchildPid)).toBe(true);
 
-      await waitForProcessExit(grandchildPid, 2_000);
+      await waitForProcessExit(grandchildPid, PID_EXIT_TIMEOUT_MS);
       expect(isProcessRunning(grandchildPid)).toBe(false);
     }, async () => {
       await rm(directory, { recursive: true, force: true });
       expect(existsSync(directory)).toBe(false);
     });
-  }, 10_000);
+  }, PROCESS_RUNNER_TEST_TIMEOUT_MS);
 });
 
 async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
