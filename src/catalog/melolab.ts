@@ -79,7 +79,7 @@ export async function syncMeloLabCatalogue(options: SyncMeloLabCatalogueOptions)
     if (timedOut) throw timeoutError;
   };
 
-  const synchronize = async (): Promise<{ count: number; playlists: PlaylistRecord[] }> => {
+  const fetchAndNormalize = async (): Promise<PlaylistRecord[]> => {
     let response: Response;
     try {
       response = await fetchImpl(options.endpoint ?? MELOLAB_CATALOG_ENDPOINT, { signal: controller.signal });
@@ -104,13 +104,16 @@ export async function syncMeloLabCatalogue(options: SyncMeloLabCatalogueOptions)
     }
 
     throwIfTimedOut();
-    await options.storage.saveMeloLabCache(playlists);
-    return { count: playlists.length, playlists };
+    return playlists;
   };
 
+  let playlists: PlaylistRecord[];
   try {
-    return await Promise.race([synchronize(), deadline]);
+    playlists = await Promise.race([fetchAndNormalize(), deadline]);
   } finally {
     clearTimeout(timeout);
   }
+
+  await options.storage.saveMeloLabCache(playlists);
+  return { count: playlists.length, playlists };
 }

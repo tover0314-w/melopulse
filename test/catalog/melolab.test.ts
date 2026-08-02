@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { normalizeMeloLabCatalogue, syncMeloLabCatalogue } from '../../src/catalog/melolab.js';
 import { CatalogStorage } from '../../src/catalog/storage.js';
@@ -45,6 +45,26 @@ function responseWithDelayedJson(body: unknown, delayMs: number): Response {
     status: 200,
     json: () => new Promise((resolve) => setTimeout(() => resolve(body), delayMs)),
   } as unknown as Response;
+}
+
+class DelayedSaveCatalogStorage extends CatalogStorage {
+  private nextSaveDelay: Promise<void> | null = null;
+  private onSaveStart: (() => void) | null = null;
+
+  delayNextSave(delay: Promise<void>, onStart: () => void): void {
+    this.nextSaveDelay = delay;
+    this.onSaveStart = onStart;
+  }
+
+  override async saveMeloLabCache(records: PlaylistRecord[]): Promise<void> {
+    const delay = this.nextSaveDelay;
+    const onStart = this.onSaveStart;
+    this.nextSaveDelay = null;
+    this.onSaveStart = null;
+    onStart?.();
+    if (delay) await delay;
+    await super.saveMeloLabCache(records);
+  }
 }
 
 async function temporaryStorage(): Promise<{ storage: CatalogStorage; cachePath: string }> {
@@ -146,5 +166,37 @@ describe('MeloLab catalogue synchronization', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 90));
     expect(await readFile(cachePath, 'utf8')).toBe(cacheBefore);
+  });
+
+  it('waits for a delayed cache commit instead of timing out while it can still write', async () => {
+    const { cachePath } = await temporaryStorage();
+    const storage = new DelayedSaveCatalogStorage(dirname(cachePath));
+    await storage.saveMeloLabCache([cachedPlaylist]);
+    const cacheBefore = await readFile(cachePath, 'utf8');
+    let releaseSave!: () => void;
+    let signalSaveStart!: () => void;
+    const saveRelease = new Promise<void>((resolve) => { releaseSave = resolve; });
+    const saveStarted = new Promise<void>((resolve) => { signalSaveStart = resolve; });
+    storage.delayNextSave(saveRelease, signalSaveStart);
+    const sync = syncMeloLabCatalogue({ storage, timeoutMs: 10, fetchImpl: async () => response(fixture) });
+
+    try {
+      await saveStarted;
+      const outcome = await Promise.race([
+        sync.then(() => 'settled', () => 'failed'),
+        new Promise<'pending'>((resolve) => setTimeout(() => resolve('pending'), 25)),
+      ]);
+
+      expect(outcome).toBe('pending');
+      expect(await readFile(cachePath, 'utf8')).toBe(cacheBefore);
+
+      releaseSave();
+      await expect(sync).resolves.toMatchObject({ count: 1 });
+      expect(await storage.loadMeloLabCache()).toEqual(normalizeMeloLabCatalogue(fixture));
+    } finally {
+      releaseSave();
+      await sync.catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   });
 });
