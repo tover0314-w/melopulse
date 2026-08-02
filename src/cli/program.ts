@@ -1,5 +1,6 @@
 import { createInterface } from 'node:readline/promises';
 import { Command } from 'commander';
+import { serveMcp } from '../mcp/index.js';
 import { detectProvider, normalizePlaylistUrl } from '../platform.js';
 import type { Activity, AddPlaylistInput, RecommendationInput } from '../schema.js';
 import type { MeloPulseService } from '../service.js';
@@ -106,6 +107,12 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
         const result = await service.play(id);
         writeResult(io, options.json, result, `Opening ${result.url}`);
       });
+    });
+
+  program.command('mcp')
+    .description('Serve MeloPulse tools over MCP stdio')
+    .action(() => {
+      serveMcp(service);
     });
 
   return program;

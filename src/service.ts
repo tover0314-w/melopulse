@@ -25,7 +25,7 @@ type OpenUrl = (url: string) => Promise<unknown>;
 export interface MeloPulseService {
   addPlaylist(input: AddPlaylistInput): Promise<PlaylistRecord>;
   listPlaylists(source?: Provider): Promise<PlaylistRecord[]>;
-  recommend(input: RecommendationInput): Promise<RecommendationResult[]>;
+  recommend(input: RecommendationInput, options?: { workspacePath?: string }): Promise<RecommendationResult[]>;
   syncCatalog(): Promise<{ count: number; playlists: PlaylistRecord[] }>;
   play(id: string): Promise<{ id: string; url: string }>;
 }
@@ -83,9 +83,9 @@ export function createMeloPulseService(options: CreateMeloPulseServiceOptions = 
       return source === undefined ? playlists : playlists.filter((playlist) => playlist.source === ProviderSchema.parse(source));
     },
 
-    async recommend(input) {
+    async recommend(input, recommendOptions) {
       const parsed = RecommendationInputSchema.parse(input);
-      const gitContext = parsed.useGitContext ? await readGitContext(cwd) : null;
+      const gitContext = parsed.useGitContext ? await readGitContext(recommendOptions?.workspacePath ?? cwd) : null;
       return recommendPlaylists(parsed, await allPlaylists(), gitContext);
     },
 
