@@ -13,6 +13,31 @@ describe('CLI capabilities', () => {
   ] as const)('resolves %#', (input, expected) => {
     expect(resolveCliCapabilities(input)).toEqual(expected);
   });
+
+  it.each([
+    ['true', 'plain'],
+    ['1', 'plain'],
+    ['yes', 'plain'],
+    [undefined, 'interactive'],
+    ['', 'interactive'],
+    ['0', 'interactive'],
+    ['false', 'interactive'],
+  ] as const)('treats CI=%j as %s output', (ci, mode) => {
+    const capabilities = resolveCliCapabilities({
+      isTTY: true,
+      stderrIsTTY: true,
+      json: false,
+      noColor: false,
+      env: ci === undefined ? {} : { CI: ci },
+      columns: 90,
+    });
+
+    expect(capabilities).toMatchObject({
+      mode,
+      color: mode === 'interactive',
+      progress: mode === 'interactive',
+    });
+  });
 });
 
 describe('CLI theme', () => {

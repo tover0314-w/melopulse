@@ -13,7 +13,11 @@ npm run build
 node dist/cli/index.js recommend
 ```
 
-The `npx -y @melolab/melopulse ...` commands below are the installed-package commands to use after that separate publication.
+The journey below uses the bare `melopulse` command. It assumes a global install after publication, or the built local-checkout entry point shown above. After publication, run the same command without a global install with `npx`:
+
+```bash
+npx -y @melolab/melopulse recommend --activity debugging
+```
 
 ## Start a session
 

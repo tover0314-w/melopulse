@@ -66,15 +66,15 @@ Known tool errors return `isError: true`. Both the text content and `structuredC
 ```json
 {
   "error": {
-    "code": "PLAYLIST_NOT_FOUND",
-    "message": "Playlist 'missing' was not found.",
-    "suggestion": "Run melopulse list or melopulse recommend to choose a valid playlist ID.",
-    "retryable": false
+    "code": "MELOLAB_SYNC_NETWORK_ERROR",
+    "message": "Unable to retrieve the MeloLab catalogue.",
+    "suggestion": "Check your connection and run melopulse sync again. Your previous cache is unchanged.",
+    "retryable": true
   }
 }
 ```
 
-Use `suggestion` as the next action. A `retryable: true` sync error means to check the connection and try the explicit sync again; the prior local cache remains available. Invalid input and unknown playlist IDs are not retryable until their input is changed. Unknown failures are reduced to a safe internal error without a stack trace or local paths.
+Use `suggestion` as the next action. A `retryable: true` sync error means to check the connection and try the explicit sync again; the prior local cache remains available. Invalid MCP input is not retryable until it is changed. Unknown failures are reduced to a safe internal error without a stack trace or local paths.
 
 ## Privacy and persistence
 
