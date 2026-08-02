@@ -1,12 +1,22 @@
 {
   "name": "@melolab/melopulse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local coding playlists for MCP agents",
-  "keywords": ["mcp", "music", "playlists", "coding", "melolab"],
+  "keywords": [
+    "mcp",
+    "music",
+    "playlists",
+    "coding",
+    "melolab"
+  ],
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=20" },
-  "bin": { "melopulse": "./dist/cli/index.js" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "melopulse": "./dist/cli/index.js"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -15,7 +25,14 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "docs", "examples", "README.md", "LICENSE", "CHANGELOG.md"],
+  "files": [
+    "dist",
+    "docs",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -41,8 +58,15 @@
     "typescript-eslint": "8.65.0",
     "vitest": "4.1.10"
   },
-  "publishConfig": { "access": "public" },
-  "repository": { "type": "git", "url": "git+https://github.com/tover0314-w/melopulse.git" },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tover0314-w/melopulse.git"
+  },
   "homepage": "https://github.com/tover0314-w/melopulse#readme",
-  "bugs": { "url": "https://github.com/tover0314-w/melopulse/issues" }
+  "bugs": {
+    "url": "https://github.com/tover0314-w/melopulse/issues"
+  }
 }

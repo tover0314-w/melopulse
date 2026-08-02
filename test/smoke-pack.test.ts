@@ -35,6 +35,9 @@ describe('packed-install smoke test', () => {
       });
 
       expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).toContain('Packed CLI help smoke passed');
+      expect(result.stdout).toContain('Packed CLI catalogue smoke passed');
+      expect(result.stdout).toContain('Packed CLI JSON error smoke passed');
       expect(result.stdout).toContain('Packed-install smoke test passed');
       expect(result.stdout).toContain('Packed MCP smoke test passed');
     }, async () => {
