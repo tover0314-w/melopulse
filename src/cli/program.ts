@@ -2,10 +2,13 @@ import { createInterface } from 'node:readline/promises';
 import { Command } from 'commander';
 import { serveMcp } from '../mcp/index.js';
 import { detectProvider, normalizePlaylistUrl } from '../platform.js';
-import type { Activity, AddPlaylistInput, RecommendationInput } from '../schema.js';
+import type { Activity, AddPlaylistInput, Provider, RecommendationInput } from '../schema.js';
 import type { MeloPulseService } from '../service.js';
-
-type Writer = { write(text: string): unknown };
+import { MELOPULSE_VERSION } from '../version.js';
+import { resolveCliCapabilities, type CliCapabilities } from './capabilities.js';
+import { toErrorView } from './error-view.js';
+import { createPresenter, type CliPresenter } from './presenter.js';
+import { startProgress, type Writer } from './progress.js';
 
 export interface CliIO {
   stdout?: Writer;
@@ -13,30 +16,50 @@ export interface CliIO {
   input?: NodeJS.ReadableStream;
   output?: NodeJS.WritableStream;
   isInteractive?: boolean;
+  env?: NodeJS.ProcessEnv;
+  columns?: number;
   setExitCode?: (code: number) => void;
 }
 
+type ResolvedCliIO = Required<Omit<CliIO, 'columns'>> & Pick<CliIO, 'columns'>;
 type AddOptions = Omit<AddPlaylistInput, 'url' | 'activityTags' | 'moodTags'> & { activity?: Activity; mood?: string; json?: boolean };
 type RecommendOptions = Omit<RecommendationInput, 'useGitContext'> & { git?: boolean; json?: boolean };
 type JsonOptions = { json?: boolean };
 
 export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {}): Command {
-  const io = {
+  const io: ResolvedCliIO = {
     stdout: suppliedIO.stdout ?? process.stdout,
     stderr: suppliedIO.stderr ?? process.stderr,
     input: suppliedIO.input ?? process.stdin,
     output: suppliedIO.output ?? process.stdout,
     isInteractive: suppliedIO.isInteractive ?? Boolean(process.stdin.isTTY),
+    env: suppliedIO.env ?? process.env,
+    ...(suppliedIO.columns === undefined ? {} : { columns: suppliedIO.columns }),
     setExitCode: suppliedIO.setExitCode ?? ((code: number) => { process.exitCode = code; }),
   };
   const program = new Command();
-  program.name('melopulse').description('Local coding playlists').configureOutput({
-    writeOut: (text) => { io.stdout.write(text); },
-    writeErr: (text) => { io.stderr.write(text); },
-  }).exitOverride((error) => {
-    io.setExitCode(error.exitCode);
-    throw error;
+  const capabilitiesFor = (json: boolean | undefined): CliCapabilities => resolveCliCapabilities({
+    isTTY: io.isInteractive,
+    json: json ?? false,
+    noColor: program.opts().color === false,
+    env: io.env,
+    ...(io.columns === undefined ? {} : { columns: io.columns }),
   });
+
+  program
+    .name('melopulse')
+    .description('Local coding playlists for people and agents')
+    .version(MELOPULSE_VERSION)
+    .option('--no-color', 'disable terminal colors')
+    .addHelpText('after', '\nQuick start:\n  melopulse recommend\n  melopulse play <playlist-id>\n\nOffline by default. Only sync contacts MeloLab.\n')
+    .configureOutput({
+      writeOut: (text) => { io.stdout.write(text); },
+      writeErr: (text) => { io.stderr.write(text); },
+    })
+    .exitOverride((error) => {
+      io.setExitCode(error.exitCode);
+      throw error;
+    });
 
   program.command('add <playlist-url>')
     .description('Add a local playlist')
@@ -47,8 +70,9 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .option('--focus <focus>', 'focus level')
     .option('--vocals <vocals>', 'vocal preference')
     .option('--json', 'print JSON')
+    .addHelpText('after', '\nExample:\n  melopulse add https://open.spotify.com/playlist/abc --title "Deep Work"\n')
     .action(async (url: string, options: AddOptions) => {
-      await runCommand(io, options, async () => {
+      await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
         const title = options.title ?? await resolveTitle(url, io);
         const playlist = await service.addPlaylist({
           url,
@@ -59,17 +83,36 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
           ...(options.focus === undefined ? {} : { focus: options.focus }),
           ...(options.vocals === undefined ? {} : { vocals: options.vocals }),
         });
-        writeResult(io, options.json, playlist, `${playlist.title}\n${playlist.url}`);
+        writeResult(io, options.json, playlist, presenter.savedPlaylist(playlist));
+      });
+    });
+
+  program.command('list')
+    .description('List playlists in the local catalogue')
+    .option('--source <source>', 'filter by melolab, spotify, apple_music, youtube_music, or generic')
+    .option('--json', 'print JSON')
+    .addHelpText('after', '\nExample:\n  melopulse list --source spotify\n')
+    .action(async (options: { source?: Provider; json?: boolean }) => {
+      await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
+        const playlists = await service.listPlaylists(options.source);
+        writeResult(io, options.json, playlists, presenter.playlists(playlists, options.source));
       });
     });
 
   program.command('sync')
     .description('Synchronize the MeloLab catalogue')
     .option('--json', 'print JSON')
+    .addHelpText('after', '\nExample:\n  melopulse sync\n')
     .action(async (options: JsonOptions) => {
-      await runCommand(io, options, async () => {
-        const result = await service.syncCatalog();
-        writeResult(io, options.json, result, `Synced ${result.count} playlists.`);
+      const capabilities = capabilitiesFor(options.json);
+      await runCommand(io, capabilities, async (presenter) => {
+        const progress = startProgress(io.stderr, capabilities, 'Syncing MeloLab catalogue...');
+        try {
+          const result = await service.syncCatalog();
+          writeResult(io, options.json, result, presenter.syncResult(result));
+        } finally {
+          progress.stop();
+        }
       });
     });
 
@@ -84,8 +127,9 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .option('--no-git', 'do not use Git context')
     .option('--limit <count>', 'maximum recommendations', Number)
     .option('--json', 'print JSON')
+    .addHelpText('after', '\nExample:\n  melopulse recommend --activity debugging --no-git\n')
     .action(async (options: RecommendOptions) => {
-      await runCommand(io, options, async () => {
+      await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
         const result = await service.recommend({
           ...(options.activity === undefined ? {} : { activity: options.activity }),
           ...(options.mood === undefined ? {} : { mood: options.mood }),
@@ -95,22 +139,24 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
           useGitContext: options.git ?? true,
           limit: options.limit ?? 3,
         });
-        writeResult(io, options.json, result, formatRecommendations(result));
+        writeResult(io, options.json, result, presenter.recommendations(result));
       });
     });
 
   program.command('play <playlist-id>')
     .description('Open a playlist in the default browser')
     .option('--json', 'print JSON')
+    .addHelpText('after', '\nExample:\n  melopulse play spotify:abc\n')
     .action(async (id: string, options: JsonOptions) => {
-      await runCommand(io, options, async () => {
+      await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
         const result = await service.play(id);
-        writeResult(io, options.json, result, `Opening ${result.url}`);
+        writeResult(io, options.json, result, presenter.playResult(result));
       });
     });
 
   program.command('mcp')
     .description('Serve MeloPulse tools over MCP stdio')
+    .addHelpText('after', '\nExample:\n  melopulse mcp\n')
     .action(() => {
       serveMcp(service);
     });
@@ -118,7 +164,7 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
   return program;
 }
 
-async function resolveTitle(url: string, io: Required<Pick<CliIO, 'input' | 'output' | 'isInteractive'>>): Promise<string> {
+async function resolveTitle(url: string, io: Pick<ResolvedCliIO, 'input' | 'output' | 'isInteractive'>): Promise<string> {
   const fallback = `${providerDisplayName(detectProvider(normalizePlaylistUrl(url)))} playlist`;
   if (!io.isInteractive) return fallback;
   const readline = createInterface({ input: io.input, output: io.output });
@@ -130,35 +176,22 @@ async function resolveTitle(url: string, io: Required<Pick<CliIO, 'input' | 'out
 }
 
 async function runCommand(
-  io: Required<Pick<CliIO, 'stderr' | 'setExitCode'>>,
-  _options: JsonOptions,
-  operation: () => Promise<void>,
+  io: Pick<ResolvedCliIO, 'stderr' | 'setExitCode'>,
+  capabilities: CliCapabilities,
+  operation: (presenter: CliPresenter) => Promise<void>,
 ): Promise<void> {
+  const presenter = createPresenter(capabilities);
   try {
-    await operation();
+    await operation(presenter);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const url = playlistUrl(error);
-    io.stderr.write(`${message}\n`);
-    if (url) io.stderr.write(`${url}\n`);
+    const view = toErrorView(error);
+    io.stderr.write(capabilities.mode === 'json' ? `${JSON.stringify({ error: view })}\n` : `${presenter.error(view)}\n`);
     io.setExitCode(1);
   }
 }
 
-function writeResult(io: Required<Pick<CliIO, 'stdout'>>, json: boolean | undefined, value: unknown, human: string): void {
+function writeResult(io: Pick<ResolvedCliIO, 'stdout'>, json: boolean | undefined, value: unknown, human: string): void {
   io.stdout.write(json ? `${JSON.stringify(value)}\n` : `${human}\n`);
-}
-
-function formatRecommendations(results: Awaited<ReturnType<MeloPulseService['recommend']>>): string {
-  return results.map((result, index) => {
-    const reason = result.reasons[0] ?? 'A local focus recommendation.';
-    return `${index + 1}. ${result.playlist.title} — ${reason}\n   ${result.playlist.url}\n   melopulse play ${result.playlist.id}`;
-  }).join('\n');
-}
-
-function playlistUrl(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('url' in error)) return undefined;
-  return typeof error.url === 'string' ? error.url : undefined;
 }
 
 function providerDisplayName(provider: ReturnType<typeof detectProvider>): string {

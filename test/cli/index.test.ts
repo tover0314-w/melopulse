@@ -33,6 +33,15 @@ describe('built melopulse executable', () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('Usage: melopulse');
+    expect(result.stdout).toContain('Quick start:');
+    expect(result.stdout).toContain('melopulse recommend');
+  });
+
+  it('prints the shared CLI version', async () => {
+    const result = await runBuiltCli(['--version']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe('0.2.0\n');
   });
 
   it('exits successfully for subcommand help', async () => {
@@ -53,6 +62,26 @@ describe('built melopulse executable', () => {
     const result = await runBuiltCli(['add', 'not-a-url', '--json']);
 
     expect(result.code).not.toBe(0);
-    expect(result.stderr).toContain('Playlist URL must be a valid URL');
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toMatchObject({ error: {
+      code: 'INVALID_PLAYLIST_URL',
+      message: 'Playlist URL must be a valid URL',
+    } });
+  });
+
+  it('prints JSON lists without ANSI when stdout is piped', async () => {
+    const result = await runBuiltCli(['list', '--json']);
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual(expect.any(Array));
+    expect(result.stdout).not.toContain('\u001B[');
+    expect(result.stderr).toBe('');
+  });
+
+  it('keeps plain piped output free of ANSI', async () => {
+    const result = await runBuiltCli(['recommend', '--no-git']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain('\u001B[');
   });
 });

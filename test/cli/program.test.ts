@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createProgram } from '../../src/cli/program.js';
+import { MeloPulseError } from '../../src/errors.js';
 import type { MeloPulseService } from '../../src/service.js';
+import type { CliIO } from '../../src/cli/program.js';
 
 type Call = { method: keyof MeloPulseService; input?: unknown };
 
@@ -14,7 +16,13 @@ function fakeService(calls: Call[]): MeloPulseService {
         energy: input.energy ?? 'medium', focus: input.focus ?? 'medium', vocals: input.vocals ?? 'any',
       };
     },
-    listPlaylists: async () => [],
+    listPlaylists: async (source) => {
+      calls.push({ method: 'listPlaylists', input: source });
+      return [{
+        id: 'spotify:abc', source: 'spotify', title: 'Spotify playlist', url: 'https://open.spotify.com/playlist/abc',
+        activityTags: ['deep_focus'], moodTags: [], energy: 'medium', focus: 'medium', vocals: 'any',
+      }];
+    },
     recommend: async (input) => {
       calls.push({ method: 'recommend', input });
       return [{
@@ -38,7 +46,11 @@ function fakeService(calls: Call[]): MeloPulseService {
   };
 }
 
-async function run(arguments_: string[], service = fakeService([])): Promise<{ stdout: string; stderr: string; exitCodes: number[] }> {
+async function run(
+  arguments_: string[],
+  service = fakeService([]),
+  suppliedIO: Partial<CliIO> = {},
+): Promise<{ stdout: string; stderr: string; exitCodes: number[] }> {
   let stdout = '';
   let stderr = '';
   const exitCodes: number[] = [];
@@ -47,6 +59,7 @@ async function run(arguments_: string[], service = fakeService([])): Promise<{ s
     stderr: { write: (text: string) => { stderr += text; return true; } },
     isInteractive: false,
     setExitCode: (code) => { exitCodes.push(code); },
+    ...suppliedIO,
   });
   await program.parseAsync(arguments_, { from: 'user' });
   return { stdout, stderr, exitCodes };
@@ -86,13 +99,49 @@ describe('melopulse commands', () => {
     expect(calls).toEqual([{ method: 'syncCatalog' }]);
   });
 
+  it('lists local playlists by source without calling sync', async () => {
+    const calls: Call[] = [];
+    const result = await run(['list', '--source', 'spotify'], fakeService(calls));
+
+    expect(result.stdout).toContain('spotify:abc');
+    expect(calls).toEqual([{ method: 'listPlaylists', input: 'spotify' }]);
+  });
+
+  it('keeps JSON errors on stderr and stdout empty', async () => {
+    const service = fakeService([]);
+    service.play = async () => { throw new MeloPulseError('PLAYLIST_NOT_FOUND', "Playlist 'missing' was not found."); };
+
+    const result = await run(['play', 'missing', '--json'], service);
+
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toEqual({ error: {
+      code: 'PLAYLIST_NOT_FOUND',
+      message: "Playlist 'missing' was not found.",
+      suggestion: 'Run melopulse list or melopulse recommend to choose a valid playlist ID.',
+      retryable: false,
+    } });
+    expect(result.exitCodes).toEqual([1]);
+  });
+
+  it('never adds ANSI when NO_COLOR is present', async () => {
+    const result = await run(['recommend', '--no-git'], fakeService([]), {
+      isInteractive: true,
+      env: { NO_COLOR: '' },
+    });
+
+    expect(result.stdout).not.toContain('\u001B[');
+  });
+
   it('reports command failures through the injected exit-code setter', async () => {
     const service = fakeService([]);
     service.syncCatalog = async () => { throw new Error('sync unavailable'); };
 
     const result = await run(['sync', '--json'], service);
 
-    expect(result.stderr).toContain('sync unavailable');
+    expect(JSON.parse(result.stderr)).toMatchObject({ error: {
+      code: 'INTERNAL_ERROR',
+      retryable: true,
+    } });
     expect(result.exitCodes).toEqual([1]);
   });
 });
