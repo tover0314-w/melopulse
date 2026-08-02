@@ -1,13 +1,13 @@
 /* global URL, process */
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const repository = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npmCli = resolveNpmCli();
 let temporaryDirectory;
 let tarballPath;
 
@@ -15,8 +15,8 @@ function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: repository,
     encoding: 'utf8',
-    shell: process.platform === 'win32' && command === npm,
     ...options,
+    shell: false,
   });
 
   if (result.error) throw result.error;
@@ -26,8 +26,28 @@ function run(command, args, options = {}) {
   return result.stdout;
 }
 
+function runNpm(args, options) {
+  return run(process.execPath, [npmCli, ...args], options);
+}
+
+function resolveNpmCli() {
+  const fromNpm = process.env.npm_execpath;
+  if (fromNpm && existsSync(fromNpm)) return fromNpm;
+
+  const nodeDirectory = dirname(process.execPath);
+  const candidates = [
+    join(nodeDirectory, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    resolve(nodeDirectory, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    resolve(nodeDirectory, '..', '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+  ];
+  const fallback = candidates.find((candidate) => existsSync(candidate));
+
+  if (fallback) return fallback;
+  throw new Error('Unable to locate npm-cli.js. Run this script with npm or install npm alongside Node.js.');
+}
+
 try {
-  const packed = JSON.parse(run(npm, ['pack', '--json']));
+  const packed = JSON.parse(runNpm(['pack', '--json']));
   const filename = packed[0]?.filename;
   if (typeof filename !== 'string' || filename.length === 0) {
     throw new Error('npm pack did not return a tarball filename.');
@@ -35,8 +55,8 @@ try {
 
   tarballPath = join(repository, filename);
   temporaryDirectory = mkdtempSync(join(tmpdir(), 'melopulse-pack-'));
-  run(npm, ['init', '-y'], { cwd: temporaryDirectory });
-  run(npm, ['install', tarballPath], { cwd: temporaryDirectory });
+  runNpm(['init', '-y'], { cwd: temporaryDirectory });
+  runNpm(['install', tarballPath], { cwd: temporaryDirectory });
 
   const configDirectory = join(temporaryDirectory, 'config');
   const output = run(process.execPath, [
