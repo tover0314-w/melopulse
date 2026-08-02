@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runProcess, type ProcessResult } from './helpers/run-process.js';
+import { withCleanup } from './helpers/with-cleanup.js';
 
 const repository = process.cwd();
 
@@ -48,15 +49,13 @@ async function cleanSourceCopy(): Promise<{ parent: string; source: string }> {
 describe('release packaging', () => {
   it('builds runtime files when packing a clean source checkout without dist', async () => {
     const copy = await cleanSourceCopy();
-    let tarball: string | undefined;
 
-    try {
+    await withCleanup(async () => {
       expect(existsSync(join(copy.source, 'dist'))).toBe(false);
 
       const result = await run(process.execPath, [npmCliPath(), 'pack', '--json'], copy.source);
       expect(result.code, result.stderr).toBe(0);
       const pack = JSON.parse(result.stdout)[0] as { filename: string; files: Array<{ path: string }> };
-      tarball = join(copy.source, pack.filename);
       const files = pack.files.map((file) => file.path);
 
       expect(files).toEqual(expect.arrayContaining([
@@ -66,39 +65,35 @@ describe('release packaging', () => {
         'dist/mcp/recommendation-output.js',
         'dist/mcp/server.js',
       ]));
-    } finally {
-      if (tarball) await rm(tarball, { force: true });
+    }, async () => {
       await rm(copy.parent, { recursive: true, force: true });
       expect(existsSync(copy.parent)).toBe(false);
-    }
+    });
   }, 120_000);
 
   it('removes stale generated files before creating the tarball', async () => {
     const copy = await cleanSourceCopy();
-    let tarball: string | undefined;
 
-    try {
+    await withCleanup(async () => {
       await mkdir(join(copy.source, 'dist'));
       await writeFile(join(copy.source, 'dist', 'stale.js'), 'throw new Error("stale output");\n', 'utf8');
 
       const result = await run(process.execPath, [npmCliPath(), 'pack', '--json'], copy.source);
       expect(result.code, result.stderr).toBe(0);
       const pack = JSON.parse(result.stdout)[0] as { filename: string; files: Array<{ path: string }> };
-      tarball = join(copy.source, pack.filename);
 
       expect(pack.files.map((file) => file.path)).not.toContain('dist/stale.js');
-    } finally {
-      if (tarball) await rm(tarball, { force: true });
+    }, async () => {
       await rm(copy.parent, { recursive: true, force: true });
       expect(existsSync(copy.parent)).toBe(false);
-    }
+    });
   }, 120_000);
 
   it('provides public declarations to an installed TypeScript consumer without exporting internals', async () => {
     const copy = await cleanSourceCopy();
     let tarball: string | undefined;
 
-    try {
+    await withCleanup(async () => {
       const packResult = await run(process.execPath, [npmCliPath(), 'pack', '--json'], copy.source);
       expect(packResult.code, packResult.stderr).toBe(0);
       const pack = JSON.parse(packResult.stdout)[0] as { filename: string; files: Array<{ path: string }> };
@@ -171,10 +166,9 @@ void [playlist, input, service];
         join(consumer, 'tsconfig.json'),
       ], consumer);
       expect(typecheck.code, `${typecheck.stdout}\n${typecheck.stderr}`).toBe(0);
-    } finally {
-      if (tarball) await rm(tarball, { force: true });
+    }, async () => {
       await rm(copy.parent, { recursive: true, force: true });
       expect(existsSync(copy.parent)).toBe(false);
-    }
+    });
   }, 120_000);
 });

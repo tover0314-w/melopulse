@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runProcess } from './helpers/run-process.js';
+import { withCleanup } from './helpers/with-cleanup.js';
 
 describe('packed-install smoke test', () => {
   it('runs directly from a repository path with spaces and an ampersand', async () => {
@@ -13,7 +14,7 @@ describe('packed-install smoke test', () => {
     const environment = { ...process.env };
     delete environment.npm_execpath;
 
-    try {
+    await withCleanup(async () => {
       await Promise.all([
         ...['dist', 'src', 'docs', 'examples', 'scripts'].map((directory) => cp(join(source, directory), join(replica, directory), { recursive: true })),
         ...[
@@ -36,9 +37,9 @@ describe('packed-install smoke test', () => {
       expect(result.code, result.stderr).toBe(0);
       expect(result.stdout).toContain('Packed-install smoke test passed');
       expect(result.stdout).toContain('Packed MCP smoke test passed');
-    } finally {
+    }, async () => {
       await rm(parent, { recursive: true, force: true });
       expect(existsSync(parent)).toBe(false);
-    }
+    });
   }, 120_000);
 });
