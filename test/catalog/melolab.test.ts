@@ -121,6 +121,33 @@ describe('MeloLab catalogue normalization', () => {
       url: 'https://melolab.ai/playlist/focus%20%3F%2F%23%20space',
     });
   });
+
+  it('resolves a MeloLab root-relative cover path from the public route', () => {
+    const [playlist] = normalizeMeloLabCatalogue({
+      playlists: [{
+        id: 'launch-showcase-playlist-rain-on-loop',
+        name: 'Rain on Loop',
+        description: 'A public showcase playlist.',
+        cover_url: '/assets/showcase/launch/covers/rain-on-loop.webp',
+        is_public: true,
+        song_count: 6,
+      }],
+    });
+
+    expect(playlist?.coverUrl).toBe('https://melolab.ai/assets/showcase/launch/covers/rain-on-loop.webp');
+  });
+
+  it.each([
+    '//evil.example/cover.jpg',
+    'http://melolab.ai/cover.jpg',
+    'https://user:pass@melolab.ai/cover.jpg',
+    'assets/showcase/cover.jpg',
+    '/\\evil.example/cover.jpg',
+  ])('rejects unsafe cover URL %s', (coverUrl) => {
+    expect(() => normalizeMeloLabCatalogue({
+      playlists: [{ id: 'unsafe-cover', name: 'Unsafe Cover', cover_url: coverUrl, is_public: true }],
+    })).toThrow();
+  });
 });
 
 describe('MeloLab catalogue synchronization', () => {

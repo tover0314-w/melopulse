@@ -5,11 +5,26 @@ import type { CatalogStorage } from './storage.js';
 
 export const MELOLAB_CATALOG_ENDPOINT = 'https://melolab.ai/api/playlists/public/featured';
 
+const MELOLAB_ORIGIN = 'https://melolab.ai';
+const AbsoluteHttpsUrlSchema = z.url().refine((value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.username === '' && url.password === '';
+  } catch {
+    return false;
+  }
+});
+const MeloLabRootRelativeUrlSchema = z.string()
+  .regex(/^\/(?!\/)[^\\]*$/)
+  .transform((value) => new URL(value, MELOLAB_ORIGIN))
+  .refine((url) => url.origin === MELOLAB_ORIGIN && url.username === '' && url.password === '')
+  .transform((url) => url.href);
+
 const MeloLabPlaylistSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
-  cover_url: z.url().refine((value) => value.startsWith('https://')).nullable().optional(),
+  cover_url: z.union([AbsoluteHttpsUrlSchema, MeloLabRootRelativeUrlSchema]).nullable().optional(),
   is_public: z.boolean().optional().default(false),
   song_count: z.number().int().nonnegative().optional(),
 });
