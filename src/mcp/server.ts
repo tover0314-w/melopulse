@@ -3,6 +3,7 @@ import * as z from 'zod/v4';
 import { MeloPulseError } from '../errors.js';
 import { AddPlaylistInputSchema, ProviderSchema, RecommendationInputSchema } from '../schema.js';
 import type { MeloPulseService } from '../service.js';
+import { adaptMcpRecommendations, McpRecommendationOutputSchema } from './recommendation-output.js';
 
 const RecommendInputSchema = RecommendationInputSchema.extend({
   workspacePath: z.string().min(1).optional(),
@@ -26,9 +27,10 @@ export function createMcpServer(service: MeloPulseService): McpServer {
     title: 'Recommend coding playlists',
     description: 'Recommend local coding playlists for an activity or workspace.',
     inputSchema: RecommendInputSchema,
+    outputSchema: McpRecommendationOutputSchema,
     annotations: { readOnlyHint: true },
   }, async ({ workspacePath = process.cwd(), ...input }) => execute(async () => {
-    const recommendations = await service.recommend(input, { workspacePath });
+    const recommendations = adaptMcpRecommendations(await service.recommend(input, { workspacePath }));
     return { text: recommendations, structuredContent: { recommendations } };
   }));
 

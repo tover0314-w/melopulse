@@ -19,7 +19,10 @@ const recommendation: RecommendationResult = {
     vocals: 'none',
   },
   score: 8,
-  reasons: ['Fits debugging work with high focus and low vocal distraction.'],
+  reasons: [
+    'Fits debugging work with high focus.',
+    'Keeps vocal distraction low.',
+  ],
 };
 
 function fakeService(): MeloPulseService {
@@ -51,7 +54,7 @@ describe('MeloPulse MCP server', () => {
     await server?.close();
   });
 
-  it('lists the four public tools and returns recommendation JSON with matching structured content', async () => {
+  it('lists the four public tools and returns flat recommendation JSON with matching structured content', async () => {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     server = createMcpServer(fakeService());
     client = new Client({ name: 'melopulse-test', version: '0.1.0' });
@@ -70,8 +73,18 @@ describe('MeloPulse MCP server', () => {
       'melopulse_recommend',
       'melopulse_sync_catalog',
     ]);
-    expect(JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '')).toEqual([recommendation]);
-    expect(result.structuredContent).toEqual({ recommendations: [recommendation] });
+    const textRecommendations = JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '');
+    const expectedRecommendations = [{
+      id: 'melolab:focus-flow',
+      title: 'Focus Flow',
+      source: 'melolab',
+      reason: 'Fits debugging work with high focus. Keeps vocal distraction low.',
+      url: 'https://melolab.ai/playlist/focus-flow',
+      playCommand: 'melopulse play melolab:focus-flow',
+    }];
+
+    expect(textRecommendations).toEqual(expectedRecommendations);
+    expect(result.structuredContent).toEqual({ recommendations: textRecommendations });
   });
 
   it('returns a stable structured error when the service rejects a tool call', async () => {
