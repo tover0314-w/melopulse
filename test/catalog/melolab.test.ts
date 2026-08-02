@@ -137,6 +137,19 @@ describe('MeloLab catalogue normalization', () => {
     expect(playlist?.coverUrl).toBe('https://melolab.ai/assets/showcase/launch/covers/rain-on-loop.webp');
   });
 
+  it('canonicalizes a mixed-case absolute HTTPS cover URL', () => {
+    const [playlist] = normalizeMeloLabCatalogue({
+      playlists: [{
+        id: 'mixed-case-cover',
+        name: 'Mixed Case Cover',
+        cover_url: 'HTTPS://cdn.example/cover.jpg',
+        is_public: true,
+      }],
+    });
+
+    expect(playlist?.coverUrl).toBe('https://cdn.example/cover.jpg');
+  });
+
   it.each([
     '//evil.example/cover.jpg',
     'http://melolab.ai/cover.jpg',

@@ -13,7 +13,7 @@ const AbsoluteHttpsUrlSchema = z.url().refine((value) => {
   } catch {
     return false;
   }
-});
+}).transform((value) => new URL(value).href);
 const MeloLabRootRelativeUrlSchema = z.string()
   .regex(/^\/(?!\/)[^\\]*$/)
   .transform((value) => new URL(value, MELOLAB_ORIGIN))
