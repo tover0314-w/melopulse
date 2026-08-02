@@ -28,6 +28,6 @@ describe('CLI presenter', () => {
   it('renders an actionable error without terminal controls', () => {
     const text = createPresenter(plain).error({ code: 'PLAYLIST_NOT_FOUND', message: 'Missing.', suggestion: 'Run melopulse list.', retryable: false });
     expect(text).toBe('Error [PLAYLIST_NOT_FOUND]: Missing.\nTry: Run melopulse list.');
-    expect(text).not.toMatch(/\u001B\[/u);
+    expect(text).not.toContain('\u001B[');
   });
 });
