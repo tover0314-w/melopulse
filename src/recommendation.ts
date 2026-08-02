@@ -24,7 +24,9 @@ export function recommendPlaylists(
   playlists: readonly PlaylistRecord[],
   gitContext: GitContext | null,
 ): RecommendationResult[] {
-  const inferredActivity = input.useGitContext === false || !gitContext ? undefined : classifyActivity({}, gitContext);
+  const inferredActivity = input.activity || input.useGitContext === false || !gitContext
+    ? undefined
+    : classifyActivity({}, gitContext);
   const results = playlists.map((playlist) => scorePlaylist(playlist, input, inferredActivity));
   const hasMatch = results.some((result) => result.score > 0);
 
@@ -68,14 +70,18 @@ function scorePlaylist(
     matches.push(vocalReason(input.vocals));
   }
 
-  return { playlist, score, reasons: matches.length ? [`Fits ${joinReasonParts(matches)}.`] : [] };
+  return { playlist: clonePlaylist(playlist), score, reasons: matches.length ? [`Fits ${joinReasonParts(matches)}.`] : [] };
 }
 
 function focusFallback(): RecommendationResult {
   const playlist = BUNDLED_PLAYLISTS.find((candidate) => candidate.id === FOCUS_FALLBACK_ID);
   if (!playlist) throw new Error('Bundled focus fallback is unavailable');
 
-  return { playlist, score: 0, reasons: ['Focus fallback for a neutral starting point.'] };
+  return { playlist: clonePlaylist(playlist), score: 0, reasons: ['Focus fallback for a neutral starting point.'] };
+}
+
+function clonePlaylist(playlist: PlaylistRecord): PlaylistRecord {
+  return { ...playlist, activityTags: [...playlist.activityTags], moodTags: [...playlist.moodTags] };
 }
 
 function vocalReason(vocals: RecommendationInput['vocals']): string {

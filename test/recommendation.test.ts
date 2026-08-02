@@ -29,6 +29,18 @@ describe('recommendations', () => {
       .toHaveLength(2);
   });
 
+  it('does not score or explain a conflicting Git activity when activity is explicit', () => {
+    const candidates: readonly PlaylistRecord[] = [
+      { ...BUNDLED_PLAYLISTS[1]!, id: 'shipping-match', activityTags: ['shipping'] },
+      { ...BUNDLED_PLAYLISTS[0]!, id: 'debugging-only', activityTags: ['debugging'] },
+    ];
+
+    const results = recommendPlaylists({ activity: 'shipping', limit: 2, useGitContext: true }, candidates, debuggingGit);
+
+    expect(results.find((result) => result.playlist.id === 'shipping-match')).toMatchObject({ score: 8 });
+    expect(results.find((result) => result.playlist.id === 'debugging-only')).toMatchObject({ score: 0, reasons: [] });
+  });
+
   it('sorts equally scored results by ID', () => {
     const ties: readonly PlaylistRecord[] = [
       { ...BUNDLED_PLAYLISTS[1]!, id: 'zeta' },
@@ -49,5 +61,32 @@ describe('recommendations', () => {
 
     expect(recommendPlaylists({ activity: 'shipping', limit: 3, useGitContext: false }, noMatches, null)[0]?.playlist.id)
       .toBe(FOCUS_FALLBACK_ID);
+  });
+
+  it('returns independent playlist records for matches and the bundled fallback', () => {
+    const supplied: PlaylistRecord[] = [{
+      ...BUNDLED_PLAYLISTS[1]!,
+      id: 'supplied-shipping',
+      activityTags: ['shipping'],
+      moodTags: ['bold'],
+    }];
+    const matched = recommendPlaylists({ activity: 'shipping', limit: 1, useGitContext: false }, supplied, null)[0]!;
+    matched.playlist.activityTags.push('debugging');
+    matched.playlist.moodTags[0] = 'mutated';
+
+    expect(supplied[0]!.activityTags).toEqual(['shipping']);
+    expect(supplied[0]!.moodTags).toEqual(['bold']);
+    expect(recommendPlaylists({ activity: 'shipping', limit: 1, useGitContext: false }, supplied, null)[0]?.playlist)
+      .toMatchObject({ activityTags: ['shipping'], moodTags: ['bold'] });
+
+    const noMatches: readonly PlaylistRecord[] = [{ ...BUNDLED_PLAYLISTS[1]!, activityTags: ['feature'] }];
+    const fallback = recommendPlaylists({ activity: 'shipping', limit: 1, useGitContext: false }, noMatches, null)[0]!;
+    fallback.playlist.activityTags.push('shipping');
+    fallback.playlist.moodTags[0] = 'mutated';
+
+    expect(BUNDLED_PLAYLISTS[0]!.activityTags).toEqual(['debugging', 'reviewing', 'deep_focus']);
+    expect(BUNDLED_PLAYLISTS[0]!.moodTags).toEqual(['calm', 'concentrated']);
+    expect(recommendPlaylists({ activity: 'shipping', limit: 1, useGitContext: false }, noMatches, null)[0]?.playlist)
+      .toMatchObject({ activityTags: ['debugging', 'reviewing', 'deep_focus'], moodTags: ['calm', 'concentrated'] });
   });
 });
