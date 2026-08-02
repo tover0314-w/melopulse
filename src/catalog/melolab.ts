@@ -52,7 +52,7 @@ export function normalizeMeloLabCatalogue(payload: unknown): PlaylistRecord[] {
         id: `melolab:${playlist.id}`,
         source: 'melolab',
         title: playlist.name,
-        url: `https://melolab.ai/playlist/${playlist.id}`,
+        url: `https://melolab.ai/playlist/${encodeURIComponent(playlist.id)}`,
         ...(playlist.cover_url === null || playlist.cover_url === undefined ? {} : { coverUrl: playlist.cover_url }),
         moodTags: [],
         ...tags,
@@ -62,29 +62,55 @@ export function normalizeMeloLabCatalogue(payload: unknown): PlaylistRecord[] {
 
 export async function syncMeloLabCatalogue(options: SyncMeloLabCatalogueOptions): Promise<{ count: number; playlists: PlaylistRecord[] }> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
   const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutError = new MeloPulseError('MELOLAB_SYNC_TIMEOUT_ERROR', 'MeloLab catalogue synchronization timed out.');
+  let timedOut = false;
+  let rejectTimeout: (error: MeloPulseError) => void;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(timeoutError);
+    rejectTimeout(timeoutError);
+  }, options.timeoutMs ?? 10_000);
 
-  let response: Response;
+  const throwIfTimedOut = (): void => {
+    if (timedOut) throw timeoutError;
+  };
+
+  const synchronize = async (): Promise<{ count: number; playlists: PlaylistRecord[] }> => {
+    let response: Response;
+    try {
+      response = await fetchImpl(options.endpoint ?? MELOLAB_CATALOG_ENDPOINT, { signal: controller.signal });
+    } catch (error) {
+      if (timedOut) throw timeoutError;
+      throw new MeloPulseError('MELOLAB_SYNC_NETWORK_ERROR', 'Unable to retrieve the MeloLab catalogue.', { cause: error });
+    }
+
+    throwIfTimedOut();
+    if (!response.ok) {
+      throw new MeloPulseError('MELOLAB_SYNC_HTTP_ERROR', `MeloLab catalogue request failed with status ${response.status}.`);
+    }
+
+    let playlists: PlaylistRecord[];
+    try {
+      const payload = await response.json();
+      throwIfTimedOut();
+      playlists = normalizeMeloLabCatalogue(payload);
+    } catch (error) {
+      if (timedOut) throw timeoutError;
+      throw new MeloPulseError('MELOLAB_SYNC_INVALID_RESPONSE', 'MeloLab returned an invalid catalogue response.', { cause: error });
+    }
+
+    throwIfTimedOut();
+    await options.storage.saveMeloLabCache(playlists);
+    return { count: playlists.length, playlists };
+  };
+
   try {
-    response = await fetchImpl(options.endpoint ?? MELOLAB_CATALOG_ENDPOINT, { signal: controller.signal });
-  } catch (error) {
-    throw new MeloPulseError('MELOLAB_SYNC_NETWORK_ERROR', 'Unable to retrieve the MeloLab catalogue.', { cause: error });
+    return await Promise.race([synchronize(), deadline]);
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!response.ok) {
-    throw new MeloPulseError('MELOLAB_SYNC_HTTP_ERROR', `MeloLab catalogue request failed with status ${response.status}.`);
-  }
-
-  let playlists: PlaylistRecord[];
-  try {
-    playlists = normalizeMeloLabCatalogue(await response.json());
-  } catch (error) {
-    throw new MeloPulseError('MELOLAB_SYNC_INVALID_RESPONSE', 'MeloLab returned an invalid catalogue response.', { cause: error });
-  }
-
-  await options.storage.saveMeloLabCache(playlists);
-  return { count: playlists.length, playlists };
 }

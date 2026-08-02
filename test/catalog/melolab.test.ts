@@ -39,6 +39,14 @@ function response(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function responseWithDelayedJson(body: unknown, delayMs: number): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: () => new Promise((resolve) => setTimeout(() => resolve(body), delayMs)),
+  } as unknown as Response;
+}
+
 async function temporaryStorage(): Promise<{ storage: CatalogStorage; cachePath: string }> {
   const directory = await mkdtemp(join(tmpdir(), 'melopulse-melolab-'));
   tempDirectories.push(directory);
@@ -82,6 +90,17 @@ describe('MeloLab catalogue normalization', () => {
       ],
     }).map((playlist) => playlist.id)).toEqual(['melolab:public']);
   });
+
+  it('encodes a remote ID as one canonical URL path segment', () => {
+    const [playlist] = normalizeMeloLabCatalogue({
+      playlists: [{ id: 'focus ?/# space', name: 'Focus', is_public: true }],
+    });
+
+    expect(playlist).toMatchObject({
+      id: 'melolab:focus ?/# space',
+      url: 'https://melolab.ai/playlist/focus%20%3F%2F%23%20space',
+    });
+  });
 });
 
 describe('MeloLab catalogue synchronization', () => {
@@ -111,6 +130,21 @@ describe('MeloLab catalogue synchronization', () => {
 
     await expect(syncMeloLabCatalogue({ storage, fetchImpl: async () => response({ playlists: [{}] }) }))
       .rejects.toMatchObject({ code: 'MELOLAB_SYNC_INVALID_RESPONSE' });
+    expect(await readFile(cachePath, 'utf8')).toBe(cacheBefore);
+  });
+
+  it('times out delayed body parsing without overwriting the existing cache', async () => {
+    const { storage, cachePath } = await temporaryStorage();
+    await storage.saveMeloLabCache([cachedPlaylist]);
+    const cacheBefore = await readFile(cachePath, 'utf8');
+
+    await expect(syncMeloLabCatalogue({
+      storage,
+      timeoutMs: 10,
+      fetchImpl: async () => responseWithDelayedJson(fixture, 80),
+    })).rejects.toMatchObject({ code: 'MELOLAB_SYNC_TIMEOUT_ERROR' });
+
+    await new Promise((resolve) => setTimeout(resolve, 90));
     expect(await readFile(cachePath, 'utf8')).toBe(cacheBefore);
   });
 });
