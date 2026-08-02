@@ -1,4 +1,5 @@
 import { Readable, Writable } from 'node:stream';
+import { CommanderError } from 'commander';
 import { describe, expect, it } from 'vitest';
 import { createProgram } from '../../src/cli/program.js';
 import { MeloPulseError } from '../../src/errors.js';
@@ -6,6 +7,7 @@ import type { MeloPulseService } from '../../src/service.js';
 import type { CliIO } from '../../src/cli/program.js';
 
 type Call = { method: keyof MeloPulseService; input?: unknown };
+const INLINE_CONTROL_CHARACTER = new RegExp(String.raw`[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]`, 'u');
 
 function fakeService(calls: Call[]): MeloPulseService {
   return {
@@ -69,7 +71,11 @@ async function run(
     setExitCode: (code) => { exitCodes.push(code); },
     ...suppliedIO,
   });
-  await program.parseAsync([...arguments_], { from: 'user' });
+  try {
+    await program.parseAsync([...arguments_], { from: 'user' });
+  } catch (error) {
+    if (!(error instanceof CommanderError)) throw error;
+  }
   return { stdout, stderr, exitCodes };
 }
 
@@ -122,7 +128,79 @@ describe('melopulse commands', () => {
     const result = await run(['list', '--source', 'spotify'], fakeService(calls));
 
     expect(result.stdout).toContain('spotify:abc');
+    expect(result.stdout).toContain('Spotify | medium energy | medium focus');
     expect(calls).toEqual([{ method: 'listPlaylists', input: 'spotify' }]);
+  });
+
+  it('states sanitized recommendation context and selection metadata', async () => {
+    const result = await run([
+      'recommend',
+      '--activity', 'debugging',
+      '--mood', "calm\n\u001B[31mfocused",
+      '--no-git',
+      '--limit', '1',
+    ]);
+
+    expect(result.stdout).toContain('MeloPulse recommendations');
+    expect(result.stdout).toContain('Git context off');
+    expect(result.stdout).toContain('1 requested');
+    expect(result.stdout).toContain('activity debugging');
+    expect(result.stdout).toContain('mood calm focused');
+    expect(result.stdout).toContain('MeloLab | low energy | high focus');
+    expect(result.stdout).not.toMatch(INLINE_CONTROL_CHARACTER);
+  });
+
+  it.each([
+    ['unknown option', ['recommend', '--json', '--unknown'], 'UNKNOWN_OPTION'],
+    ['missing argument', ['play', '--json'], 'MISSING_ARGUMENT'],
+    ['conflicting options', ['recommend', '--json', '--git', '--no-git'], 'CONFLICTING_OPTIONS'],
+  ] as const)('renders %s parser failures as one JSON ErrorView on stderr', async (_scenario, arguments_, code) => {
+    const result = await run(arguments_);
+
+    expect(result.stdout).toBe('');
+    expect(result.stderr.trim().split('\n')).toHaveLength(1);
+    expect(JSON.parse(result.stderr)).toEqual({
+      error: {
+        code,
+        message: expect.any(String),
+        suggestion: expect.any(String),
+        retryable: false,
+      },
+    });
+    expect(result.stderr).not.toContain('error:');
+    expect(result.exitCodes).toEqual([1]);
+  });
+
+  it('keeps plain Commander parser text single-line and control-free', async () => {
+    const result = await run(['recommend', '--bad\n\u001B[31moption']);
+
+    expect(result.stdout).toBe('');
+    expect(result.stderr.trim().split('\n')).toHaveLength(1);
+    expect(result.stderr).not.toMatch(INLINE_CONTROL_CHARACTER);
+    expect(result.stderr).not.toContain('\u001B[');
+  });
+
+  it.each([
+    ['CI', { CI: '1' }],
+    ['TERM=dumb', { TERM: 'dumb' }],
+  ] as const)('does not prompt for an add title in %s plain mode', async (_scenario, env) => {
+    const calls: Call[] = [];
+    const result = await run(
+      ['add', 'https://open.spotify.com/playlist/abc'],
+      fakeService(calls),
+      {
+        isInteractive: true,
+        isStderrInteractive: true,
+        env,
+        input: Readable.from(['Prompted title\n']),
+      },
+    );
+
+    expect(result.stdout).not.toContain('Playlist title:');
+    expect(calls).toEqual([{
+      method: 'addPlaylist',
+      input: expect.objectContaining({ title: 'Spotify playlist' }),
+    }]);
   });
 
   it('keeps JSON errors on stderr and stdout empty', async () => {
@@ -158,6 +236,26 @@ describe('melopulse commands', () => {
     const result = await run(arguments_, fakeService([]), suppliedIO);
 
     expect(result.stderr).toBe('');
+  });
+
+  it('clears interactive sync progress before durable success output', async () => {
+    const events: Array<{ stream: 'stdout' | 'stderr'; text: string }> = [];
+    const program = createProgram(fakeService([]), {
+      stdout: { write: (text) => { events.push({ stream: 'stdout', text }); } },
+      stderr: { write: (text) => { events.push({ stream: 'stderr', text }); } },
+      isInteractive: true,
+      isStderrInteractive: true,
+      env: {},
+      setExitCode: () => undefined,
+    });
+
+    await program.parseAsync(['sync'], { from: 'user' });
+
+    expect(events.map(({ stream, text }) => ({ stream, control: text.includes('\u001B[2K') }))).toEqual([
+      { stream: 'stderr', control: false },
+      { stream: 'stderr', control: true },
+      { stream: 'stdout', control: false },
+    ]);
   });
 
   it('reports command failures through the injected exit-code setter', async () => {

@@ -1,12 +1,12 @@
 import { createInterface } from 'node:readline/promises';
-import { Command } from 'commander';
+import { Command, Option, type ParseOptions } from 'commander';
 import { serveMcp } from '../mcp/index.js';
 import { detectProvider, normalizePlaylistUrl } from '../platform.js';
 import type { Activity, AddPlaylistInput, Provider, RecommendationInput } from '../schema.js';
 import type { MeloPulseService } from '../service.js';
 import { MELOPULSE_VERSION } from '../version.js';
 import { resolveCliCapabilities, type CliCapabilities } from './capabilities.js';
-import { toErrorView } from './error-view.js';
+import { sanitizeHumanText, toErrorView, toParserErrorView } from './error-view.js';
 import { createPresenter, type CliPresenter } from './presenter.js';
 import { startProgress, type Writer } from './progress.js';
 
@@ -39,7 +39,7 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     ...(suppliedIO.columns === undefined ? {} : { columns: suppliedIO.columns }),
     setExitCode: suppliedIO.setExitCode ?? ((code: number) => { process.exitCode = code; }),
   };
-  const program = new Command();
+  const program = new CliCommand();
   const capabilitiesFor = (json: boolean | undefined): CliCapabilities => resolveCliCapabilities({
     isTTY: io.isInteractive,
     stderrIsTTY: io.isStderrInteractive,
@@ -57,10 +57,18 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .addHelpText('after', '\nQuick start:\n  melopulse recommend\n  melopulse play <playlist-id>\n\nOffline by default. Only sync contacts MeloLab.\n')
     .configureOutput({
       writeOut: (text) => { io.stdout.write(text); },
-      writeErr: (text) => { io.stderr.write(text); },
+      writeErr: (text) => {
+        if (!program.parserJsonRequested) {
+          const safeText = sanitizeHumanText(text);
+          if (safeText) io.stderr.write(`${safeText}\n`);
+        }
+      },
     })
     .exitOverride((error) => {
       io.setExitCode(error.exitCode);
+      if (program.parserJsonRequested && error.exitCode !== 0) {
+        io.stderr.write(`${JSON.stringify({ error: toParserErrorView(error) })}\n`);
+      }
       throw error;
     });
 
@@ -75,8 +83,9 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .option('--json', 'print JSON')
     .addHelpText('after', '\nExample:\n  melopulse add https://open.spotify.com/playlist/abc --title "Deep Work"\n')
     .action(async (url: string, options: AddOptions) => {
-      await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
-        const title = options.title ?? await resolveTitle(url, io, !options.json);
+      const capabilities = capabilitiesFor(options.json);
+      await runCommand(io, capabilities, async (presenter) => {
+        const title = options.title ?? await resolveTitle(url, io, capabilities.mode === 'interactive');
         const playlist = await service.addPlaylist({
           url,
           ...(title === undefined ? {} : { title }),
@@ -112,6 +121,7 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
         const progress = startProgress(io.stderr, capabilities, 'Syncing MeloLab catalogue...');
         try {
           const result = await service.syncCatalog();
+          progress.stop();
           writeResult(io, options.json, result, presenter.syncResult(result));
         } finally {
           progress.stop();
@@ -126,14 +136,14 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
     .option('--energy <energy>', 'energy level')
     .option('--focus <focus>', 'focus level')
     .option('--vocals <vocals>', 'vocal preference')
-    .option('--git', 'use Git context', true)
-    .option('--no-git', 'do not use Git context')
+    .addOption(new NamedOption('--git', 'use Git context', 'gitEnabled').conflicts('git'))
+    .addOption(new Option('--no-git', 'do not use Git context').conflicts('gitEnabled'))
     .option('--limit <count>', 'maximum recommendations', Number)
     .option('--json', 'print JSON')
     .addHelpText('after', '\nExample:\n  melopulse recommend --activity debugging --no-git\n')
     .action(async (options: RecommendOptions) => {
       await runCommand(io, capabilitiesFor(options.json), async (presenter) => {
-        const result = await service.recommend({
+        const input: RecommendationInput = {
           ...(options.activity === undefined ? {} : { activity: options.activity }),
           ...(options.mood === undefined ? {} : { mood: options.mood }),
           ...(options.energy === undefined ? {} : { energy: options.energy }),
@@ -141,8 +151,9 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
           ...(options.vocals === undefined ? {} : { vocals: options.vocals }),
           useGitContext: options.git ?? true,
           limit: options.limit ?? 3,
-        });
-        writeResult(io, options.json, result, presenter.recommendations(result));
+        };
+        const result = await service.recommend(input);
+        writeResult(io, options.json, result, presenter.recommendations(result, input));
       });
     });
 
@@ -169,11 +180,11 @@ export function createProgram(service: MeloPulseService, suppliedIO: CliIO = {})
 
 async function resolveTitle(
   url: string,
-  io: Pick<ResolvedCliIO, 'input' | 'output' | 'isInteractive'>,
+  io: Pick<ResolvedCliIO, 'input' | 'output'>,
   allowPrompt: boolean,
 ): Promise<string> {
   const fallback = `${providerDisplayName(detectProvider(normalizePlaylistUrl(url)))} playlist`;
-  if (!allowPrompt || !io.isInteractive) return fallback;
+  if (!allowPrompt) return fallback;
   const readline = createInterface({ input: io.input, output: io.output });
   try {
     return (await readline.question('Playlist title: ')).trim() || fallback;
@@ -204,4 +215,27 @@ function writeResult(io: Pick<ResolvedCliIO, 'stdout'>, json: boolean | undefine
 function providerDisplayName(provider: ReturnType<typeof detectProvider>): string {
   const names = { melolab: 'MeloLab', spotify: 'Spotify', apple_music: 'Apple Music', youtube_music: 'YouTube Music', generic: 'Generic' };
   return names[provider];
+}
+
+class CliCommand extends Command {
+  parserJsonRequested = false;
+
+  override async parseAsync(argv?: readonly string[], parseOptions?: ParseOptions): Promise<this> {
+    this.parserJsonRequested = (argv ?? process.argv).includes('--json');
+    try {
+      return await super.parseAsync(argv, parseOptions);
+    } finally {
+      this.parserJsonRequested = false;
+    }
+  }
+}
+
+class NamedOption extends Option {
+  constructor(flags: string, description: string, private readonly propertyName: string) {
+    super(flags, description);
+  }
+
+  override attributeName(): string {
+    return this.propertyName;
+  }
 }

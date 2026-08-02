@@ -133,9 +133,14 @@ describe('safe CLI error views', () => {
     });
   });
 
-  it('collapses Zod details into a safe invalid-input response', () => {
+  it('turns Zod enum details into safe option-specific guidance', () => {
     const error = z.object({ energy: z.enum(['low', 'medium', 'high']) }).safeParse({ energy: 'max' }).error;
-    expect(toErrorView(error)).toMatchObject({ code: 'INVALID_INPUT', retryable: false });
+    expect(toErrorView(error)).toEqual({
+      code: 'INVALID_ENERGY',
+      message: 'Invalid energy value.',
+      suggestion: 'Set --energy to one of: low, medium, or high.',
+      retryable: false,
+    });
     expect(JSON.stringify(toErrorView(error))).not.toContain('invalid_value');
   });
 
@@ -172,7 +177,7 @@ const RECOVERY = {
 } as const;
 ```
 
-Recognize existing URL validation messages as `INVALID_PLAYLIST_URL`, Zod failures as `INVALID_INPUT`, known `MeloPulseError` instances by code, and everything else as the generic `INTERNAL_ERROR`. Copy an error `url` only when it is a credential-free HTTPS URL.
+Recognize existing URL validation messages as `INVALID_PLAYLIST_URL`. For Zod failures, safely inspect only the first issue path plus enum/range constraints: identify `activity`, `energy`, `focus`, `vocals`, `source`, `limit`, and playlist IDs with field-specific codes and actionable allowed values; never expose the raw issue tree or user-controlled issue text. Keep a generic `INVALID_INPUT` fallback. Map known `MeloPulseError` instances by code and everything else to `INTERNAL_ERROR`. Sanitize every human message and suggestion to a single control-free line. Copy an error `url` only when it is a credential-free HTTPS URL. MCP callers use the same mapper with an explicit surface/tool context so recovery names MCP tools rather than CLI shell commands.
 
 - [ ] **Step 7: Run focused tests, typecheck, and commit**
 
@@ -196,8 +201,8 @@ git commit -m "feat: add adaptive cli presentation primitives"
 - Create: `test/cli/progress.test.ts`
 
 **Interfaces:**
-- Consumes: `CliCapabilities`, `CliTheme`, `ErrorView`, `PlaylistRecord`, and `RecommendationResult`.
-- Produces: `createPresenter(capabilities: CliCapabilities): CliPresenter` with `recommendations`, `playlists`, `savedPlaylist`, `syncResult`, `playResult`, and `error` methods.
+- Consumes: `CliCapabilities`, `CliTheme`, `ErrorView`, `PlaylistRecord`, `RecommendationInput`, and `RecommendationResult`.
+- Produces: `createPresenter(capabilities: CliCapabilities): CliPresenter` with `recommendations(results, safeRequestedContext)`, `playlists`, `savedPlaylist`, `syncResult`, `playResult`, and `error` methods.
 - Produces: `startProgress(writer: Writer, capabilities: CliCapabilities, label: string): ProgressHandle` where `ProgressHandle.stop(): void` is idempotent.
 
 - [ ] **Step 1: Write failing presenter tests**
@@ -238,6 +243,8 @@ describe('CLI presenter', () => {
 });
 ```
 
+Add cases that require sanitized recommendation context (`Git context on/off`, requested limit, and supplied filters), requested list source, source/energy/focus metadata, and wrapping at a narrow injected terminal width. Assertions must prove that explanatory prose wraps while playlist IDs, HTTPS URLs, and `melopulse play <id>` commands remain verbatim.
+
 - [ ] **Step 2: Run presenter tests and verify they fail**
 
 Run: `npx vitest run test/cli/presenter.test.ts --no-file-parallelism`
@@ -246,7 +253,7 @@ Expected: FAIL because `createPresenter` does not exist.
 
 - [ ] **Step 3: Implement compact output formatting**
 
-Use these durable human labels: `Why`, `Fit`, `URL`, `Play`, `Saved playlist`, `Synced`, `Opening`, `Error`, `Try`. Return strings without a trailing newline because command wiring owns exactly one final newline. Never truncate IDs, URLs, or commands. Use `·` only when `capabilities.unicode` is true and ` | ` otherwise.
+Use these durable human labels: `Context`, `Why`, `Fit`, `Source`, `ID`, `URL`, `Play`, `Saved playlist`, `Synced`, `Opening`, `Error`, `Try`. Return strings without a trailing newline because command wiring owns exactly one final newline. Recommendation context must contain only sanitized requested metadata, never raw Git content. List and recommendation entries state source, energy, and focus in text. Wrap explanatory prose against `capabilities.columns`; never truncate or wrap IDs, URLs, or commands. Use `·` only when `capabilities.unicode` is true and ` | ` otherwise.
 
 The plain list shape is:
 
@@ -439,18 +446,18 @@ expect(result.structuredContent).toEqual(errorText);
 expect(errorText).toEqual({ error: {
   code: 'MELOLAB_SYNC_NETWORK_ERROR',
   message: 'Unable to retrieve the MeloLab catalogue.',
-  suggestion: 'Check your connection and run melopulse sync again. Your previous cache is unchanged.',
+  suggestion: 'Check the connection and call melopulse_sync_catalog again. The previous cache is unchanged.',
   retryable: true,
 } });
 ```
 
-Also assert each description states whether it is local-only or contacts MeloLab, and that the list tool mentions its optional source filter.
+Also assert each description states whether it is local-only or contacts MeloLab, and that the list tool mentions its optional source filter. Through a real in-memory client/server pair, call malformed `melopulse_recommend`, `melopulse_add_playlist`, and `melopulse_list_playlists` inputs. Each must return the same `{ error: ErrorView }` in text and `structuredContent`, use tool-specific recovery, leave service call records empty, and retain the useful enum/range constraints in the schemas advertised by `tools/list`.
 
 - [ ] **Step 2: Run MCP tests and verify the metadata/error cases fail**
 
 Run: `npx vitest run test/mcp/server.test.ts --no-file-parallelism`
 
-Expected: FAIL because complete annotations, recovery guidance, and structured error content are absent.
+Expected: FAIL because complete annotations, MCP-specific recovery, structured service errors, and SDK pre-handler validation translation are absent.
 
 - [ ] **Step 3: Implement exact agent guidance**
 
@@ -461,10 +468,10 @@ Use descriptions with these facts:
 - `melopulse_list_playlists`: local-only catalogue listing with optional `source` filter.
 - `melopulse_sync_catalog`: the only network tool, explicitly contacts MeloLab and preserves the prior cache on failure.
 
-Set all four annotation booleans explicitly. Replace MCP-local error mapping with `toErrorView(error)` and return:
+Set all four annotation booleans explicitly. The installed SDK validates a registered Standard Schema before invoking the callback and converts failures to plain text. Preserve the original schema's Standard JSON Schema converter exactly, defer only its runtime validation, and immediately parse the raw callback input with the original Zod schema before any service work. This is the schema-preserving interception point; do not remove or weaken the advertised `inputSchema`. Route both these parse failures and action failures through `toErrorView(error, { surface: 'mcp', toolName })` and return:
 
 ```ts
-const details = { error: toErrorView(error) };
+const details = { error: toErrorView(error, { surface: 'mcp', toolName }) };
 return {
   isError: true,
   content: [{ type: 'text' as const, text: JSON.stringify(details) }],
@@ -478,7 +485,7 @@ Use `MELOPULSE_VERSION` for the server version. Do not log, color, or write dire
 
 Run: `npx vitest run test/mcp/server.test.ts test/mcp/stdio.test.ts --no-file-parallelism && npm run typecheck`
 
-Expected: all MCP tests PASS; stdio still lists exactly four tools and returns a recommendation without network access.
+Expected: all MCP tests PASS; stdio still lists exactly four tools and returns a recommendation without network access; malformed in-memory calls return structured ErrorViews without reaching service methods, and `tools/list` still advertises the original enum/range schemas.
 
 - [ ] **Step 5: Commit the MCP polish**
 

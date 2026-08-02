@@ -68,13 +68,13 @@ Known tool errors return `isError: true`. Both the text content and `structuredC
   "error": {
     "code": "MELOLAB_SYNC_NETWORK_ERROR",
     "message": "Unable to retrieve the MeloLab catalogue.",
-    "suggestion": "Check your connection and run melopulse sync again. Your previous cache is unchanged.",
+    "suggestion": "Check the connection and call melopulse_sync_catalog again. The previous cache is unchanged.",
     "retryable": true
   }
 }
 ```
 
-Use `suggestion` as the next action. A `retryable: true` sync error means to check the connection and try the explicit sync again; the prior local cache remains available. Invalid MCP input is not retryable until it is changed. Unknown failures are reduced to a safe internal error without a stack trace or local paths.
+Use `suggestion` as the next action. Recovery names MCP tools such as `melopulse_sync_catalog`, `melopulse_list_playlists`, and `melopulse_recommend`, never CLI shell commands. A `retryable: true` sync error means to check the connection and call the explicit sync tool again; the prior local cache remains available. Invalid MCP input identifies supported enum values or numeric ranges and is not retryable until it is changed. Unknown failures are reduced to a safe internal error without a stack trace or local paths.
 
 ## Privacy and persistence
 

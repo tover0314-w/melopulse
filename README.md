@@ -36,9 +36,12 @@ melopulse recommend --no-git --json
 Human output uses durable labels so the next action is clear:
 
 ```text
+MeloPulse recommendations
+Context: local catalogue | Git context on | 3 requested | activity debugging
+
 1. Focus Flow
 Why: Matches your debugging session.
-Fit: low energy | high focus | no vocals
+Fit: MeloLab | low energy | high focus | no vocals
 URL: https://melolab.ai/playlist/launch-showcase-playlist-focus-flow
 Play: melopulse play melolab:launch-showcase-playlist-focus-flow
 ```
@@ -66,7 +69,7 @@ melopulse list --source spotify
 melopulse list --json
 ```
 
-The plain view starts with a `1 playlist` or `N playlists` heading and shows each playlist ID, title, and URL. Source filters accept `melolab`, `spotify`, `apple_music`, `youtube_music`, and `generic`.
+The plain view starts with a `1 playlist` or `N playlists` heading, states the requested local/source context, and shows each playlist ID, title, normalized source, energy, focus, and URL. Source filters accept `melolab`, `spotify`, `apple_music`, `youtube_music`, and `generic`.
 
 ### 4. Add a playlist link
 
@@ -78,8 +81,9 @@ melopulse add https://open.spotify.com/playlist/example --title "Deep Work" --ac
 
 ```text
 Saved playlist: Deep Work
+Source: Spotify
+ID: spotify:<local-id>
 URL: https://open.spotify.com/playlist/example
-spotify:<local-id>
 Next: melopulse recommend
 ```
 
