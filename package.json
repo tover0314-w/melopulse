@@ -2,6 +2,7 @@
   "name": "@melolab/melopulse",
   "version": "0.1.0",
   "description": "Local coding playlists for MCP agents",
+  "keywords": ["mcp", "music", "playlists", "coding", "melolab"],
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=20" },

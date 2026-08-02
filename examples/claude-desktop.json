@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "melopulse": {
+      "command": "npx",
+      "args": ["-y", "@melolab/melopulse", "mcp"]
+    }
+  }
+}

@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest a focused improvement to MeloPulse.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Please do not include secrets, credentials, private URLs, or repository contents.
+  - type: textarea
+    id: desired-behavior
+    attributes:
+      label: Desired behavior
+      description: Describe the user problem and the behavior you would like.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe current workarounds or alternative approaches.
+    validations:
+      required: false
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy impact
+      description: Explain whether this would change local storage, Git reads, or network behavior.
+    validations:
+      required: true
