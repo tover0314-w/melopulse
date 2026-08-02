@@ -5,13 +5,16 @@ export const ActivitySchema = z.enum(['debugging', 'feature', 'reviewing', 'ship
 export const EnergySchema = z.enum(['low', 'medium', 'high']);
 export const FocusSchema = z.enum(['low', 'medium', 'high']);
 export const VocalsSchema = z.enum(['none', 'low', 'any']);
+export const PlaylistIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9:._-]*$/, {
+  message: 'Playlist ID must be a shell-safe token',
+});
 
 const HttpsUrlSchema = z.url().refine((value) => value.startsWith('https://'), {
   message: 'URL must use HTTPS',
 });
 
 export const PlaylistRecordSchema = z.object({
-  id: z.string().min(1),
+  id: PlaylistIdSchema,
   source: ProviderSchema,
   title: z.string().min(1),
   url: HttpsUrlSchema,

@@ -117,9 +117,28 @@ describe('MeloLab catalogue normalization', () => {
     });
 
     expect(playlist).toMatchObject({
-      id: 'melolab:focus ?/# space',
+      id: 'melolab:b64.Zm9jdXMgPy8jIHNwYWNl',
       url: 'https://melolab.ai/playlist/focus%20%3F%2F%23%20space',
     });
+  });
+
+  it('normalizes unsafe and reserved-prefix remote IDs deterministically without collisions', () => {
+    const payload = {
+      playlists: [
+        { id: 'focus ?/# space', name: 'Unsafe ID', is_public: true },
+        { id: 'b64.Zm9jdXMgPy8jIHNwYWNl', name: 'Reserved Prefix ID', is_public: true },
+      ],
+    };
+
+    const first = normalizeMeloLabCatalogue(payload);
+    const second = normalizeMeloLabCatalogue(payload);
+
+    expect(first.map((playlist) => playlist.id)).toEqual([
+      'melolab:b64.Zm9jdXMgPy8jIHNwYWNl',
+      'melolab:b64.YjY0LlptOWpkWE1nUHk4aklITndZV05s',
+    ]);
+    expect(second.map((playlist) => playlist.id)).toEqual(first.map((playlist) => playlist.id));
+    expect(new Set(first.map((playlist) => playlist.id)).size).toBe(2);
   });
 
   it('resolves a MeloLab root-relative cover path from the public route', () => {

@@ -106,4 +106,41 @@ describe('MeloPulse MCP server', () => {
       },
     });
   });
+
+  it.each([
+    'playlist with spaces',
+    'playlist;shutdown',
+    'playlist$HOME',
+    'playlist`command`',
+    'playlist"quoted"',
+    "playlist'quoted'",
+    '-option-like',
+  ])('rejects unsafe recommendation ID %j without emitting a play command', async (unsafeId) => {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const service = fakeService();
+    service.recommend = async () => [{
+      ...recommendation,
+      playlist: { ...recommendation.playlist, id: unsafeId },
+    }];
+    server = createMcpServer(service);
+    client = new Client({ name: 'melopulse-test', version: '0.1.0' });
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const result = await client.callTool({
+      name: 'melopulse_recommend',
+      arguments: { useGitContext: false },
+    });
+    const text = result.content[0]?.type === 'text' ? result.content[0].text : '';
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An unexpected internal error occurred.',
+      },
+    });
+    expect(text).not.toContain('melopulse play');
+    expect(result.structuredContent).toBeUndefined();
+  });
 });

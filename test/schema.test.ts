@@ -29,6 +29,28 @@ describe('playlist schema', () => {
       vocals: 'any',
     })).toThrow();
   });
+
+  it.each([
+    'playlist with spaces',
+    'playlist;shutdown',
+    'playlist$HOME',
+    'playlist`command`',
+    'playlist"quoted"',
+    "playlist'quoted'",
+    '-option-like',
+  ])('rejects unsafe playlist ID %j', (id) => {
+    expect(() => PlaylistRecordSchema.parse({
+      id,
+      source: 'generic',
+      title: 'Unsafe ID',
+      url: 'https://example.com/list',
+      activityTags: ['deep_focus'],
+      moodTags: [],
+      energy: 'medium',
+      focus: 'medium',
+      vocals: 'any',
+    })).toThrow();
+  });
 });
 
 describe('MeloPulseError', () => {

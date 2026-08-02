@@ -1,11 +1,13 @@
+import { Buffer } from 'node:buffer';
 import { z } from 'zod';
 import { MeloPulseError } from '../errors.js';
-import type { PlaylistRecord } from '../schema.js';
+import { PlaylistIdSchema, type PlaylistRecord } from '../schema.js';
 import type { CatalogStorage } from './storage.js';
 
 export const MELOLAB_CATALOG_ENDPOINT = 'https://melolab.ai/api/playlists/public/featured';
 
 const MELOLAB_ORIGIN = 'https://melolab.ai';
+const ENCODED_MELOLAB_ID_PREFIX = 'b64.';
 const AbsoluteHttpsUrlSchema = z.url().refine((value) => {
   try {
     const url = new URL(value);
@@ -64,7 +66,7 @@ export function normalizeMeloLabCatalogue(payload: unknown): PlaylistRecord[] {
     .map((playlist) => {
       const tags = inferTags(`${playlist.id} ${playlist.name} ${playlist.description ?? ''}`.toLowerCase());
       return {
-        id: `melolab:${playlist.id}`,
+        id: normalizeMeloLabPlaylistId(playlist.id),
         source: 'melolab',
         title: playlist.name,
         url: `https://melolab.ai/playlist/${encodeURIComponent(playlist.id)}`,
@@ -73,6 +75,16 @@ export function normalizeMeloLabCatalogue(payload: unknown): PlaylistRecord[] {
         ...tags,
       };
     });
+}
+
+function normalizeMeloLabPlaylistId(remoteId: string): string {
+  const unchanged = `melolab:${remoteId}`;
+  if (!remoteId.startsWith(ENCODED_MELOLAB_ID_PREFIX) && PlaylistIdSchema.safeParse(unchanged).success) {
+    return unchanged;
+  }
+
+  const encoded = Buffer.from(remoteId, 'utf8').toString('base64url');
+  return PlaylistIdSchema.parse(`melolab:${ENCODED_MELOLAB_ID_PREFIX}${encoded}`);
 }
 
 export async function syncMeloLabCatalogue(options: SyncMeloLabCatalogueOptions): Promise<{ count: number; playlists: PlaylistRecord[] }> {

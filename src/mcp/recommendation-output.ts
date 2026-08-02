@@ -1,8 +1,8 @@
 import * as z from 'zod/v4';
-import { ProviderSchema, type RecommendationResult } from '../schema.js';
+import { PlaylistIdSchema, ProviderSchema, type RecommendationResult } from '../schema.js';
 
 export const McpRecommendationSchema = z.object({
-  id: z.string().min(1),
+  id: PlaylistIdSchema,
   title: z.string().min(1),
   source: ProviderSchema,
   reason: z.string().min(1),
@@ -17,14 +17,17 @@ export const McpRecommendationOutputSchema = z.object({
 export type McpRecommendation = z.infer<typeof McpRecommendationSchema>;
 
 export function adaptMcpRecommendations(results: readonly RecommendationResult[]): McpRecommendation[] {
-  return results.map(({ playlist, reasons }) => ({
-    id: playlist.id,
-    title: playlist.title,
-    source: playlist.source,
-    reason: combineReasons(reasons),
-    url: playlist.url,
-    playCommand: `melopulse play ${playlist.id}`,
-  }));
+  return results.map(({ playlist, reasons }) => {
+    const id = PlaylistIdSchema.parse(playlist.id);
+    return {
+      id,
+      title: playlist.title,
+      source: playlist.source,
+      reason: combineReasons(reasons),
+      url: playlist.url,
+      playCommand: `melopulse play ${id}`,
+    };
+  });
 }
 
 function combineReasons(reasons: readonly string[]): string {
