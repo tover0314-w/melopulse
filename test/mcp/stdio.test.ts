@@ -40,6 +40,12 @@ describe('melopulse mcp stdio server', () => {
       });
 
       expect(tools.tools).toHaveLength(4);
+      expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
+        'melopulse_add_playlist',
+        'melopulse_list_playlists',
+        'melopulse_recommend',
+        'melopulse_sync_catalog',
+      ]);
       expect(JSON.parse(result.content[0]?.type === 'text' ? result.content[0].text : '')).toHaveLength(1);
     } finally {
       await client.close();

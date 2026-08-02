@@ -1,8 +1,9 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
-import { MeloPulseError } from '../errors.js';
+import { toErrorView } from '../cli/error-view.js';
 import { AddPlaylistInputSchema, ProviderSchema, RecommendationInputSchema } from '../schema.js';
 import type { MeloPulseService } from '../service.js';
+import { MELOPULSE_VERSION } from '../version.js';
 import { adaptMcpRecommendations, McpRecommendationOutputSchema } from './recommendation-output.js';
 
 const RecommendInputSchema = RecommendationInputSchema.extend({
@@ -21,14 +22,14 @@ type ToolSuccess = {
 };
 
 export function createMcpServer(service: MeloPulseService): McpServer {
-  const server = new McpServer({ name: 'melopulse', version: '0.1.0' });
+  const server = new McpServer({ name: 'melopulse', version: MELOPULSE_VERSION });
 
   server.registerTool('melopulse_recommend', {
     title: 'Recommend coding playlists',
-    description: 'Recommend local coding playlists for an activity or workspace.',
+    description: 'Local-only recommendations for an activity or workspace. Optionally uses safe Git context, does not upload code, and has a default limit of 3.',
     inputSchema: RecommendInputSchema,
     outputSchema: McpRecommendationOutputSchema,
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ workspacePath = process.cwd(), ...input }) => execute(async () => {
     const recommendations = adaptMcpRecommendations(await service.recommend(input, { workspacePath }));
     return { text: recommendations, structuredContent: { recommendations } };
@@ -36,8 +37,9 @@ export function createMcpServer(service: MeloPulseService): McpServer {
 
   server.registerTool('melopulse_add_playlist', {
     title: 'Add a local playlist',
-    description: 'Add a playlist to the local MeloPulse catalogue.',
+    description: 'Locally saves one HTTPS link and supplied tags, fetches no provider metadata, and updates duplicate URLs idempotently.',
     inputSchema: AddPlaylistInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (input) => execute(async () => {
     const playlist = await service.addPlaylist(input);
     return { text: playlist, structuredContent: { playlist } };
@@ -45,9 +47,9 @@ export function createMcpServer(service: MeloPulseService): McpServer {
 
   server.registerTool('melopulse_list_playlists', {
     title: 'List local playlists',
-    description: 'List playlists available in the local MeloPulse catalogue.',
+    description: 'Local-only catalogue listing with an optional source filter.',
     inputSchema: ListPlaylistsInputSchema,
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async ({ source }) => execute(async () => {
     const playlists = await service.listPlaylists(source);
     return { text: playlists, structuredContent: { playlists } };
@@ -55,8 +57,9 @@ export function createMcpServer(service: MeloPulseService): McpServer {
 
   server.registerTool('melopulse_sync_catalog', {
     title: 'Sync the MeloLab catalogue',
-    description: 'Contacts MeloLab and updates the local cache with the latest catalogue.',
+    description: 'The only network tool: contacts MeloLab to update the local cache and preserves the prior cache on failure.',
     inputSchema: SyncCatalogInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async () => execute(async () => {
     const result = await service.syncCatalog();
     return { text: result, structuredContent: result };
@@ -78,11 +81,10 @@ async function execute(operation: () => Promise<ToolSuccess>) {
 }
 
 function toolError(error: unknown) {
-  const details = error instanceof MeloPulseError
-    ? { code: error.code, message: error.message }
-    : { code: 'INTERNAL_ERROR', message: 'An unexpected internal error occurred.' };
+  const details = { error: toErrorView(error) };
   return {
     isError: true,
-    content: [{ type: 'text' as const, text: JSON.stringify({ error: details }) }],
+    content: [{ type: 'text' as const, text: JSON.stringify(details) }],
+    structuredContent: details,
   };
 }
