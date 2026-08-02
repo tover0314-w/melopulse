@@ -8,6 +8,10 @@ const program = createProgram(createMeloPulseService());
 try {
   await program.parseAsync();
 } catch (error) {
-  if (!(error instanceof CommanderError)) process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+  if (error instanceof CommanderError) {
+    process.exitCode ??= error.exitCode;
+  } else {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }
