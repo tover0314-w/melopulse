@@ -1,4 +1,5 @@
 import open from 'open';
+import { z } from 'zod';
 import { BUNDLED_PLAYLISTS } from './catalog/bundled.js';
 import { mergeCatalogues } from './catalog/merge.js';
 import { resolveDataDir } from './catalog/paths.js';
@@ -10,6 +11,7 @@ import { createPlaylistId, detectProvider, normalizePlaylistUrl } from './platfo
 import { recommendPlaylists } from './recommendation.js';
 import {
   AddPlaylistInputSchema,
+  PlaylistIdSchema,
   ProviderSchema,
   RecommendationInputSchema,
   type AddPlaylistInput,
@@ -21,6 +23,8 @@ import {
 
 type FetchImplementation = (input: string, init?: RequestInit) => Promise<Response>;
 type OpenUrl = (url: string) => Promise<unknown>;
+
+const PlayInputSchema = z.object({ playlistId: PlaylistIdSchema });
 
 export interface MeloPulseService {
   addPlaylist(input: AddPlaylistInput): Promise<PlaylistRecord>;
@@ -95,8 +99,9 @@ export function createMeloPulseService(options: CreateMeloPulseServiceOptions = 
     },
 
     async play(id) {
-      const playlist = (await allPlaylists()).find((candidate) => candidate.id === id);
-      if (!playlist) throw new MeloPulseError('PLAYLIST_NOT_FOUND', `Playlist '${id}' was not found.`);
+      const { playlistId } = PlayInputSchema.parse({ playlistId: id });
+      const playlist = (await allPlaylists()).find((candidate) => candidate.id === playlistId);
+      if (!playlist) throw new MeloPulseError('PLAYLIST_NOT_FOUND', `Playlist '${playlistId}' was not found.`);
       try {
         await openUrl(playlist.url);
       } catch (error) {

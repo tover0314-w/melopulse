@@ -1,68 +1,151 @@
 # MeloPulse
 
-Local coding playlists for MCP agents.
+Local coding playlists for people and MCP agents.
+
+MeloPulse is offline-first: it recommends from a bundled catalogue, your local playlist imports, and any locally cached MeloLab catalogue. It never uploads code, audio, credentials, or playlist metadata. Only `melopulse sync` contacts MeloLab.
+
+## Package availability
+
+The npm package is **not yet published**. It will be published only through a separate release action. Until then, build a local checkout and run:
 
 ```bash
-npx @melolab/melopulse recommend
+npm run build
+node dist/cli/index.js recommend
 ```
 
-MeloPulse reads safe Git metadata locally, recommends from a local catalogue, and opens playlists in MeloLab or your music app. Recommendation does not upload code or require an account.
-
-## What it does
-
-MeloPulse is an offline-first playlist recommender for coding sessions. It includes a small local catalogue, lets you import HTTPS playlist links with local tags, and can explicitly synchronize MeloLab's public catalogue into a local cache. It returns playlist URLs; your browser or music app handles playback.
-
-It does not generate music, store audio, authenticate users, use OAuth, control a player, monitor repositories in the background, send telemetry, or fetch provider metadata. The only network operation is an explicit `sync` request to MeloLab.
-
-## Install and use
-
-The package is not published until a separate release action occurs. Until then, run from a local checkout with `npm run build` and `node dist/cli/index.js <command>`.
-
-Once published, use the CLI with `npx`:
+The journey below uses the bare `melopulse` command. It assumes a global install after publication, or the built local-checkout entry point shown above. After publication, run the same command without a global install with `npx`:
 
 ```bash
 npx -y @melolab/melopulse recommend --activity debugging
-npx -y @melolab/melopulse recommend --no-git --json
 ```
 
-### CLI commands
+## Start a session
 
-| Command | Purpose |
-| --- | --- |
-| `melopulse add <playlist-url>` | Import an HTTPS playlist link into the local catalogue. Use `--title`, `--activity`, `--mood`, `--energy`, `--focus`, and `--vocals` to set local tags. |
-| `melopulse sync` | Explicitly download MeloLab's public featured catalogue and update the local cache. |
-| `melopulse recommend` | Return up to three local recommendations. Git context is enabled by default; use `--no-git` to disable it. |
-| `melopulse play <playlist-id>` | Hand a selected playlist URL to the operating system's default browser or registered music app. |
-| `melopulse mcp` | Start the MCP server over standard input/output. |
+### 1. Recommend a playlist
 
-`recommend` accepts `--activity`, `--mood`, `--energy`, `--focus`, `--vocals`, `--limit`, and `--json`. Recommendation uses the bundled catalogue, your local link imports, and any cached MeloLab sync; it does not query streaming providers.
+```bash
+melopulse recommend --activity debugging
+```
 
-## MCP tools
+MeloPulse may use safe local Git metadata to improve this suggestion. Use `--no-git` when you do not want it to read that metadata:
 
-The MCP server exposes exactly four tools:
+```bash
+melopulse recommend --no-git --json
+```
 
-| Tool | Purpose |
-| --- | --- |
-| `melopulse_recommend` | Recommend from the local catalogue, optionally using safe Git context. |
-| `melopulse_add_playlist` | Import and tag an HTTPS playlist link locally. |
-| `melopulse_list_playlists` | List local catalogue entries, optionally filtered by source. |
-| `melopulse_sync_catalog` | Explicitly synchronize MeloLab's public catalogue. |
+Human output uses durable labels so the next action is clear:
 
-See [MCP setup](docs/mcp.md) and copy the ready-made configurations in [examples](examples).
+```text
+MeloPulse recommendations
+Context: local catalogue | Git context on | 3 requested | activity debugging
 
-## Supported playlist links
+1. Focus Flow
+Why: Matches your debugging session.
+Fit: MeloLab | low energy | high focus | no vocals
+URL: https://melolab.ai/playlist/launch-showcase-playlist-focus-flow
+Play: melopulse play melolab:launch-showcase-playlist-focus-flow
+```
 
-MeloPulse accepts HTTPS links and recognizes MeloLab, Spotify, Apple Music, and YouTube Music links. Other HTTPS playlist links are stored as `generic`. Link import only saves the URL and your local tags; it does not retrieve provider metadata or audio.
+### 2. Play a selected playlist
+
+Copy the ID shown after `Play:` and hand the URL to your operating system:
+
+```bash
+melopulse play melolab:launch-showcase-playlist-focus-flow
+```
+
+```text
+Opening in your default browser or music app:
+https://melolab.ai/playlist/launch-showcase-playlist-focus-flow
+```
+
+MeloPulse does not control a player. Any subsequent network activity is performed by the browser or music app you choose, not by MeloPulse.
+
+### 3. List your local catalogue
+
+```bash
+melopulse list
+melopulse list --source spotify
+melopulse list --json
+```
+
+The plain view starts with a `1 playlist` or `N playlists` heading, states the requested local/source context, and shows each playlist ID, title, normalized source, energy, focus, and URL. Source filters accept `melolab`, `spotify`, `apple_music`, `youtube_music`, and `generic`.
+
+### 4. Add a playlist link
+
+Import HTTPS playlist links and keep their title and tags locally:
+
+```bash
+melopulse add https://open.spotify.com/playlist/example --title "Deep Work" --activity deep_focus
+```
+
+```text
+Saved playlist: Deep Work
+Source: Spotify
+ID: spotify:<local-id>
+URL: https://open.spotify.com/playlist/example
+Next: melopulse recommend
+```
+
+MeloPulse recognizes Spotify, Apple Music, and YouTube Music URLs; other HTTPS playlist URLs are saved as `generic`. For example:
+
+```bash
+melopulse add https://music.apple.com/us/playlist/example --title "Apple Focus"
+melopulse add https://music.youtube.com/playlist?list=example --title "YouTube Focus"
+melopulse add https://playlists.example.com/deep-work --title "Team Mix"
+```
+
+Imports save only the link and the tags you provide. MeloPulse does not fetch provider metadata, authenticate with providers, or transfer audio.
+
+### 5. Sync MeloLab explicitly
+
+```bash
+melopulse sync
+```
+
+```text
+Synced 6 public playlists from MeloLab.
+Next: melopulse recommend
+```
+
+This is the only MeloPulse command that contacts the network, and it contacts MeloLab only. It updates the local cache; a failed sync keeps the previous cache.
+
+### 6. Connect an MCP client
+
+MeloPulse exposes four local MCP tools over standard input/output. See [MCP setup and tool guidance](docs/mcp.md) and the ready-made [client examples](examples/).
+
+## CLI behavior
+
+`melopulse --help` includes a quick start and the offline/network boundary. Every command supports `--help`; `melopulse --version` prints the installed version.
+
+Use `--no-color` to disable terminal colors for a command, or set `NO_COLOR` in the environment to disable them everywhere. MeloPulse also uses stable plain output when output is redirected, in CI, or in a dumb terminal.
+
+Commands that support `--json` produce exactly one JSON value followed by a newline on standard output. Expected command failures with `--json` produce exactly one safe JSON error object on standard error, leave standard output empty, and exit with status 1. JSON output never contains ANSI terminal controls.
+
+```bash
+melopulse recommend --no-git --json
+melopulse add https://open.spotify.com/playlist/example --title "Deep Work" --json
+melopulse play missing --json
+```
+
+The final command writes an error shaped like this to standard error:
+
+```json
+{
+  "error": {
+    "code": "PLAYLIST_NOT_FOUND",
+    "message": "Playlist 'missing' was not found.",
+    "suggestion": "Run melopulse list or melopulse recommend to choose a valid playlist ID.",
+    "retryable": false
+  }
+}
+```
 
 ## Local storage and privacy
 
-The local catalogue is stored in the platform configuration directory, or in `MELOPULSE_CONFIG_DIR` when set. It contains `playlists.json` for local imports and `melolab-catalog-cache.json` for the last explicit MeloLab sync.
+The local catalogue is stored in the platform configuration directory, or in `MELOPULSE_CONFIG_DIR` when set. It contains `playlists.json` for imported links and `melolab-catalog-cache.json` for the most recent explicit sync.
 
-When Git context is enabled, MeloPulse reads only safe metadata from the chosen workspace. It never uploads repository contents, source code, file contents, remote URLs, credentials, or audio. Read the complete [privacy boundary](docs/privacy.md).
-
-## MeloLab relationship
-
-MeloPulse is a local recommender that can hand off a MeloLab playlist URL to your browser or app. MeloLab sync is opt-in and happens only when you run `melopulse sync` or call `melopulse_sync_catalog`; there is no background synchronization, account connection, OAuth, or provider integration.
+With Git context enabled, MeloPulse reads safe repository metadata only. It never reads or uploads source-file contents, diffs, remote URLs, credentials, or audio. Read the complete [privacy boundary](docs/privacy.md).
 
 ## Development
 
@@ -73,12 +156,10 @@ npm run smoke:pack
 npm pack --dry-run
 ```
 
-The packed-install smoke test builds an npm tarball, installs it in a temporary directory, runs `recommend --no-git --json`, verifies a recommendation is returned, and cleans up both locations.
+The packed-install smoke test creates a tarball, installs it in an isolated directory, checks help, version, local recommendation/import/listing, JSON error routing, and MCP tool behavior, then removes the tarball and temporary locations.
 
-## Contributing and security
+## Contributing and license
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) before participating.
-
-## License
+Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md) before participating.
 
 [MIT](LICENSE) © 2026 Tover0314

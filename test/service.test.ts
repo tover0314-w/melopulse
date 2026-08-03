@@ -56,6 +56,22 @@ describe('MeloPulse service', () => {
     await expect(service.play('missing')).rejects.toMatchObject({ code: 'PLAYLIST_NOT_FOUND' });
   });
 
+  it.each([
+    "missing\nINJECTED",
+    'missing\u001B[31mINJECTED',
+    'missing value',
+  ])('validates unsafe playlist ID %j before lookup or URL handoff', async (id) => {
+    const dataDir = await temporaryDirectory();
+    const opened: string[] = [];
+    const service = createMeloPulseService({
+      dataDir,
+      openUrl: async (url) => { opened.push(url); },
+    });
+
+    await expect(service.play(id)).rejects.toMatchObject({ name: 'ZodError' });
+    expect(opened).toEqual([]);
+  });
+
   it('applies documented metadata defaults to playlist additions', async () => {
     const service = createMeloPulseService({ dataDir: await temporaryDirectory() });
 
